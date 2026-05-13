@@ -1,0 +1,43 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "psychological-counselor",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-05-13",
+  "observability": {
+    "enabled": true
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "psychological-counselor",
+      "database_id": "replace-with-d1-database-id"
+    }
+  ],
+  "vectorize": [
+    {
+      "binding": "MEMORY_INDEX",
+      "index_name": "psychological-counselor-memory"
+    }
+  ],
+  "ai": {
+    "binding": "AI"
+  },
+  "vars": {
+    "DISCORD_APPLICATION_ID": "replace-with-discord-application-id",
+    "DISCORD_PUBLIC_KEY": "replace-with-discord-public-key",
+    "OWNER_DISCORD_USER_ID": "replace-with-your-discord-user-id",
+    "COUNSELOR_LANGUAGE": "ja",
+    "MEMORY_TIME_ZONE": "Asia/Tokyo",
+    "EMBEDDING_MODEL": "@cf/baai/bge-m3",
+    "MEMORY_MAX_ITEMS": "50000",
+    "MEMORY_VECTOR_TOP_K": "8",
+    "MEMORY_TEXT_TOP_K": "6",
+    "MEMORY_RECENT_TOP_K": "8",
+    "CODEX_MODEL": "",
+    "RUNNER_BACKEND": "http",
+    "RUNNER_HTTP_BASE_URL": "https://codex-runner.example.com",
+    "R2_ACCOUNT_ID": "replace-with-cloudflare-account-id",
+    "R2_BUCKET_NAME": "replace-with-private-r2-bucket",
+    "R2_STATE_PREFIX": "codex-state/main"
+  }
+}

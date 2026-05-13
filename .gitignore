@@ -1,0 +1,15 @@
+node_modules/
+.wrangler/
+.dev.vars
+.env
+.codex-state/
+wrangler.local.jsonc
+wrangler.container.local.jsonc
+cloudflared.yml
+*.pem
+*.key
+dist/
+runner/dist/
+runner/node_modules/
+*.log
+.DS_Store

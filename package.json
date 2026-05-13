@@ -1,0 +1,32 @@
+{
+  "name": "psychological-counselor",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "runner"
+  ],
+  "scripts": {
+    "bootstrap": "tsx scripts/bootstrap-cloudflare.ts",
+    "bootstrap:container": "tsx scripts/bootstrap-cloudflare.ts --container",
+    "dev": "wrangler dev -c wrangler.local.jsonc",
+    "dev:container": "wrangler dev -c wrangler.container.local.jsonc",
+    "deploy": "wrangler deploy -c wrangler.local.jsonc",
+    "deploy:container": "wrangler deploy -c wrangler.container.local.jsonc",
+    "typecheck": "tsc --noEmit && npm --workspace runner run typecheck",
+    "commands:register": "tsx scripts/register-commands.ts",
+    "db:migrate:local": "wrangler d1 migrations apply psychological-counselor --local -c wrangler.local.jsonc",
+    "db:migrate:remote": "wrangler d1 migrations apply psychological-counselor --remote -c wrangler.local.jsonc"
+  },
+  "dependencies": {
+    "@cloudflare/containers": "^0.3.4",
+    "tweetnacl": "^1.0.3"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20260511.1",
+    "@types/node": "^24.0.0",
+    "tsx": "^4.20.6",
+    "typescript": "^5.9.3",
+    "wrangler": "^4.90.1"
+  }
+}

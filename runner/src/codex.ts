@@ -1,0 +1,184 @@
+import { Codex, type ThreadOptions } from "@openai/codex-sdk";
+import { spawn } from "node:child_process";
+import { existsSync } from "node:fs";
+import { mkdir } from "node:fs/promises";
+import { join } from "node:path";
+import type { R2StateSync } from "./state.js";
+
+interface AuthProcessState {
+  status: "idle" | "pending" | "authenticated" | "failed";
+  verificationUri?: string;
+  userCode?: string;
+  output: string;
+  startedAt?: string;
+  finishedAt?: string;
+  error?: string;
+}
+
+export class CodexService {
+  private authState: AuthProcessState = { status: "idle", output: "" };
+  private authProcessRunning = false;
+
+  constructor(
+    private readonly stateSync: R2StateSync,
+    private readonly codexHome: string,
+    private readonly workspace: string
+  ) {}
+
+  async authStatus(): Promise<Record<string, unknown>> {
+    await this.stateSync.restoreOnce();
+    const result = await runCodex(["login", "status"], this.codexHome);
+    return {
+      ok: result.code === 0,
+      status: result.code === 0 ? "authenticated" : "unauthenticated",
+      stdout: result.stdout.trim(),
+      stderr: result.stderr.trim(),
+      authProcess: this.authState
+    };
+  }
+
+  async startDeviceAuth(): Promise<Record<string, unknown>> {
+    await this.stateSync.restoreOnce();
+    const current = await runCodex(["login", "status"], this.codexHome);
+    if (current.code === 0) {
+      return {
+        status: "already_authenticated",
+        stdout: current.stdout.trim()
+      };
+    }
+
+    if (this.authProcessRunning) {
+      return {
+        ...this.authState,
+        status: "pending"
+      };
+    }
+
+    await mkdir(this.codexHome, { recursive: true, mode: 0o700 });
+    this.authProcessRunning = true;
+    this.authState = {
+      status: "pending",
+      output: "",
+      startedAt: new Date().toISOString()
+    };
+
+    const child = spawn(codexBin(), ["login", "--device-auth"], {
+      env: codexEnv(this.codexHome),
+      cwd: this.workspace,
+      stdio: ["ignore", "pipe", "pipe"]
+    });
+
+    child.stdout.on("data", (chunk) => this.captureAuthOutput(String(chunk)));
+    child.stderr.on("data", (chunk) => this.captureAuthOutput(String(chunk)));
+    child.on("error", (error) => {
+      this.authProcessRunning = false;
+      this.authState = {
+        ...this.authState,
+        status: "failed",
+        error: error.message,
+        finishedAt: new Date().toISOString()
+      };
+    });
+    child.on("close", async (code) => {
+      this.authProcessRunning = false;
+      this.authState = {
+        ...this.authState,
+        status: code === 0 ? "authenticated" : "failed",
+        finishedAt: new Date().toISOString(),
+        error: code === 0 ? undefined : `codex login exited with ${code}`
+      };
+      if (code === 0) await this.stateSync.syncNow();
+    });
+
+    await waitForAuthCode(() => this.authState);
+    return {
+      ...this.authState,
+      status: "started"
+    };
+  }
+
+  async chat(prompt: string, model?: string): Promise<Record<string, unknown>> {
+    await this.stateSync.restoreOnce();
+    await mkdir(this.workspace, { recursive: true });
+
+    const codex = new Codex({
+      env: codexEnv(this.codexHome)
+    });
+    const threadOptions: ThreadOptions = {
+      sandboxMode: "read-only",
+      workingDirectory: this.workspace,
+      approvalPolicy: "never",
+      networkAccessEnabled: false
+    };
+    if (model) threadOptions.model = model;
+
+    const thread = codex.startThread(threadOptions);
+    const result = await thread.run(prompt);
+    await this.stateSync.syncNow();
+
+    return {
+      text: result.finalResponse,
+      usage: result.usage,
+      threadId: thread.id
+    };
+  }
+
+  private captureAuthOutput(chunk: string): void {
+    const output = `${this.authState.output}${chunk}`;
+    const verificationUri = this.authState.verificationUri ?? output.match(/https:\/\/\S+/)?.[0];
+    const userCode = this.authState.userCode ?? output.match(/\b[A-Z0-9]{4,}-[A-Z0-9-]{4,}\b/)?.[0];
+    this.authState = {
+      ...this.authState,
+      output: output.slice(-4000),
+      verificationUri,
+      userCode
+    };
+  }
+}
+
+async function runCodex(args: string[], codexHome: string): Promise<{
+  code: number | null;
+  stdout: string;
+  stderr: string;
+}> {
+  return new Promise((resolve) => {
+    const child = spawn(codexBin(), args, {
+      env: codexEnv(codexHome),
+      stdio: ["ignore", "pipe", "pipe"]
+    });
+    let stdout = "";
+    let stderr = "";
+    child.stdout.on("data", (chunk) => stdout += String(chunk));
+    child.stderr.on("data", (chunk) => stderr += String(chunk));
+    child.on("error", (error) => resolve({ code: 1, stdout, stderr: error.message }));
+    child.on("close", (code) => resolve({ code, stdout, stderr }));
+  });
+}
+
+function codexEnv(codexHome: string): Record<string, string> {
+  return compactEnv({
+    ...process.env,
+    HOME: process.env.HOME || "/home/codex",
+    CODEX_HOME: codexHome
+  });
+}
+
+function codexBin(): string {
+  const local = join(process.cwd(), "node_modules", ".bin", process.platform === "win32" ? "codex.cmd" : "codex");
+  return existsSync(local) ? local : "codex";
+}
+
+function compactEnv(env: NodeJS.ProcessEnv): Record<string, string> {
+  return Object.fromEntries(
+    Object.entries(env).filter((entry): entry is [string, string] => entry[1] !== undefined)
+  );
+}
+
+async function waitForAuthCode(getState: () => AuthProcessState): Promise<void> {
+  const deadline = Date.now() + 10_000;
+  while (Date.now() < deadline) {
+    const state = getState();
+    if (state.userCode || state.verificationUri || state.status !== "pending") return;
+    await new Promise((resolve) => setTimeout(resolve, 250));
+  }
+}

@@ -1,0 +1,26 @@
+services:
+  codex-runner:
+    build:
+      context: .
+      dockerfile: runner/Dockerfile
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8789:8789"
+    environment:
+      PORT: "8789"
+      HOME: /home/codex
+      CODEX_HOME: /home/codex/.codex
+      WORKSPACE_DIR: /workspace
+      RUNNER_SHARED_SECRET: ${RUNNER_SHARED_SECRET}
+      CODEX_MODEL: ${CODEX_MODEL:-}
+      R2_ACCOUNT_ID: ${R2_ACCOUNT_ID:-}
+      R2_BUCKET_NAME: ${R2_BUCKET_NAME:-}
+      R2_STATE_PREFIX: ${R2_STATE_PREFIX:-codex-state/main}
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-}
+    volumes:
+      - codex-workspace:/workspace
+      - ${HOST_CODEX_HOME:-./.codex-state}:/home/codex/.codex
+
+volumes:
+  codex-workspace:

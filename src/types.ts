@@ -40,6 +40,8 @@ export interface DiscordDmResponse {
   content: string;
   delayMs?: number;
   botUsername?: string;
+  purgeDiscordHistory?: boolean;
+  purgeLimit?: number;
 }
 
 export interface DmIngestResponse {

@@ -23,6 +23,8 @@ type WorkerDmResponse = {
   content?: string;
   delayMs?: number;
   botUsername?: string;
+  purgeDiscordHistory?: boolean;
+  purgeLimit?: number;
   error?: string;
 };
 
@@ -77,6 +79,24 @@ type OrchestrateResponse = {
 type SendableChannel = {
   send(content: string): Promise<unknown>;
   sendTyping?: () => Promise<void>;
+};
+
+type PurgeableChannel = SendableChannel & {
+  messages: {
+    fetch(options: { limit: number; before?: string }): Promise<{
+      size: number;
+      values(): IterableIterator<Message>;
+      last(): Message | undefined;
+    }>;
+  };
+};
+
+type DiscordPurgeReport = {
+  scanned: number;
+  botDeleted: number;
+  userDeleted: number;
+  botFailed: number;
+  userFailed: number;
 };
 
 const pendingReplyTimers = new Map<string, ReturnType<typeof setTimeout>>();
@@ -205,7 +225,10 @@ async function handleCommandMessage(message: Message, content: string): Promise<
   if (body.botUsername) {
     await applyBotUsername(body.botUsername);
   }
-  await sendChunked(message, body.content || "空の応答でした。");
+  const purgeReport = body.purgeDiscordHistory
+    ? await purgeDiscordDmHistory(message, body.purgeLimit ?? 500)
+    : null;
+  await sendChunked(message, withPurgeReport(body.content || "空の応答でした。", purgeReport));
 }
 
 function schedulePendingReply(input: {
@@ -393,6 +416,65 @@ async function maintainTypingUntil(channel: SendableChannel, promise: Promise<un
     if (channel.sendTyping) await channel.sendTyping();
     await sleep(8_000);
   }
+}
+
+async function purgeDiscordDmHistory(message: Message, limit: number): Promise<DiscordPurgeReport> {
+  const report: DiscordPurgeReport = {
+    scanned: 0,
+    botDeleted: 0,
+    userDeleted: 0,
+    botFailed: 0,
+    userFailed: 0
+  };
+  const channel = message.channel as unknown as PurgeableChannel;
+  if (!channel.messages?.fetch) return report;
+
+  let before: string | undefined;
+  const max = Math.max(1, Math.min(limit, 2_000));
+  while (report.scanned < max) {
+    const batch = await channel.messages.fetch({
+      limit: Math.min(100, max - report.scanned),
+      before
+    });
+    if (batch.size === 0) break;
+
+    for (const item of batch.values()) {
+      report.scanned += 1;
+      const isBotMessage = item.author.id === client.user?.id;
+      try {
+        await item.delete();
+        if (isBotMessage) report.botDeleted += 1;
+        else report.userDeleted += 1;
+        await sleep(350);
+      } catch {
+        if (isBotMessage) report.botFailed += 1;
+        else report.userFailed += 1;
+      }
+    }
+
+    before = batch.last()?.id;
+    if (!before || batch.size < 100) break;
+  }
+
+  return report;
+}
+
+function withPurgeReport(content: string, report: DiscordPurgeReport | null): string {
+  if (!report) return content;
+  return [
+    content,
+    "",
+    [
+      `Discord履歴掃除: ${report.scanned}件確認`,
+      `Bot削除 ${report.botDeleted}件`,
+      `ユーザー削除 ${report.userDeleted}件`,
+      report.botFailed ? `Bot削除失敗 ${report.botFailed}件` : undefined,
+      report.userFailed ? `ユーザー削除失敗 ${report.userFailed}件` : undefined
+    ].filter(Boolean).join(" / "),
+    report.userFailed
+      ? "ユーザー側のDMはDiscordのBot権限では消せない場合があります。その分はDiscordクライアント側で手動削除が必要です。"
+      : undefined
+  ].filter(Boolean).join("\n");
 }
 
 async function applyBotUsername(username: string): Promise<void> {

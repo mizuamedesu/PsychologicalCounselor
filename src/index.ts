@@ -25,6 +25,7 @@ import {
   buildPersonaContext,
   ensurePersonaProfile,
   expandDuePersonaWorlds,
+  getPersonaProfile,
   formatPersonaStatus,
   initializePersonaFromSeed,
   looksLikePersonaSeed,
@@ -694,24 +695,42 @@ async function handlePersonaCommand(
   argument: string
 ): Promise<DiscordDmResponse> {
   const trimmed = argument.trim();
+  const profile = await getPersonaProfile(env, userId);
+  const currentName = currentBotResetName(profile);
   if (!trimmed || trimmed === "status") {
     return {
       content: [
         await formatPersonaStatus(env, userId),
         "",
-        "作り直すなら `/persona reset`、そのまま再設定するなら `/persona 名前はゆい、21歳...` みたいに送ってください。"
+        profile?.status === "active"
+          ? `作り直すなら先に \`/persona reset ${currentName}\` と送ってください。全会話履歴も消えます。`
+          : "そのまま `/persona 名前はゆい、21歳...` みたいに送ると初期ペルソナを作れます。"
       ].join("\n")
     };
   }
 
-  if (/^(reset|clear|やり直し|リセット)$/i.test(trimmed)) {
+  const resetMatch = trimmed.match(/^(reset|clear|やり直し|リセット)(?:\s+(.+))?$/i);
+  if (resetMatch) {
+    const providedName = resetMatch[2]?.trim();
+    if (!providedName || !sameResetName(providedName, currentName)) {
+      return {
+        content: [
+          "リセットは全会話履歴と記憶を消すので、確認として今のBot名を一緒に送ってください。",
+          `例: \`/persona reset ${currentName}\``
+        ].join("\n")
+      };
+    }
+
     const deleted = await resetAllUserData(env, userId);
     return {
       content: [
-        `ペルソナを作り直すために、このユーザー分のDB状態を初期化しました。memory ${deleted.memoryItems}件、pending ${deleted.pendingMessages}件。`,
+        `ペルソナを作り直すために、このユーザー分のDB状態を初期化しました。conversation ${deleted.conversations}件、memory ${deleted.memoryItems}件、pending ${deleted.pendingMessages}件。`,
+        "DiscordのDM履歴も、このあとBot側で消せる範囲を掃除します。",
         "",
         personaSetupPrompt()
-      ].join("\n")
+      ].join("\n"),
+      purgeDiscordHistory: true,
+      purgeLimit: 500
     };
   }
 
@@ -721,6 +740,17 @@ async function handlePersonaCommand(
         "ペルソナ材料としては少し短いかも。",
         "",
         personaSetupPrompt()
+      ].join("\n")
+    };
+  }
+
+  if (profile?.status === "active") {
+    return {
+      content: [
+        "既存ペルソナがある状態で直接作り直すと会話履歴も全部消えるので、先に名前確認つきでリセットしてください。",
+        `例: \`/persona reset ${currentName}\``,
+        "",
+        "その後に新しいペルソナ材料を送ってください。"
       ].join("\n")
     };
   }
@@ -745,12 +775,19 @@ async function handlePersonaCommand(
 async function resetAllUserData(
   env: Env,
   userId: string
-): Promise<{ memoryItems: number; pendingMessages: number }> {
-  const pending = await env.DB.prepare(
-    `SELECT COUNT(*) AS count
-     FROM dm_pending_messages
-     WHERE discord_user_id = ?`
-  ).bind(userId).first<{ count: number }>();
+): Promise<{ conversations: number; memoryItems: number; pendingMessages: number }> {
+  const [conversationCount, pending] = await Promise.all([
+    env.DB.prepare(
+      `SELECT COUNT(*) AS count
+       FROM conversations
+       WHERE discord_user_id = ?`
+    ).bind(userId).first<{ count: number }>(),
+    env.DB.prepare(
+      `SELECT COUNT(*) AS count
+       FROM dm_pending_messages
+       WHERE discord_user_id = ?`
+    ).bind(userId).first<{ count: number }>()
+  ]);
   const memoryItems = await forgetAllMemory(env, userId);
 
   await env.DB.batch([
@@ -766,9 +803,25 @@ async function resetAllUserData(
   ]);
 
   return {
+    conversations: conversationCount?.count ?? 0,
     memoryItems,
     pendingMessages: pending?.count ?? 0
   };
+}
+
+function currentBotResetName(profile: Awaited<ReturnType<typeof getPersonaProfile>>): string {
+  if (profile?.status === "active") {
+    return personaBotUsername(profile) ?? profile.display_name ?? "PsychologicalCounselor";
+  }
+  return "PsychologicalCounselor";
+}
+
+function sameResetName(input: string, expected: string): boolean {
+  return normalizeResetName(input) === normalizeResetName(expected);
+}
+
+function normalizeResetName(value: string): string {
+  return value.normalize("NFKC").trim().replace(/\s+/g, " ").toLowerCase();
 }
 
 function formatAuthStart(value: Record<string, unknown>): string {

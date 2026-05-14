@@ -79,10 +79,13 @@ When a seed includes a usable name, the on-prem Discord bot attempts to update
 its bot account username to that persona name. Discord treats this as a global
 bot username change, not a per-DM nickname, and Discord may rate-limit or reject
 some names.
-Use `/persona status`, `/persona reset`, or `/persona 名前は...` in DM to inspect
-or rebuild the persona later. Rebuilding a persona intentionally resets all
-per-user app state first, including conversation memory, pending replies, life
-state, and the old persona graph.
+Use `/persona status`, `/persona reset <current bot name>`, or `/persona 名前は...`
+in DM to inspect or rebuild the persona later. Rebuilding a persona intentionally
+resets all per-user app state first, including conversation history, memory,
+pending replies, life state, and the old persona graph. A reset also asks the
+on-prem Discord bot to sweep recent DM history. Discord allows the bot to delete
+its own messages, but user-authored DM messages may be rejected by Discord and
+need to be removed manually in the Discord client.
 
 ## Local Mac Runner
 

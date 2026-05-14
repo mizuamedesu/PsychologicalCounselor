@@ -31,8 +31,8 @@ export class CodexService {
     return {
       ok: result.code === 0,
       status: result.code === 0 ? "authenticated" : "unauthenticated",
-      stdout: result.stdout.trim(),
-      stderr: result.stderr.trim(),
+      stdout: stripAnsi(result.stdout).trim(),
+      stderr: stripAnsi(result.stderr).trim(),
       authProcess: this.authState
     };
   }
@@ -43,7 +43,7 @@ export class CodexService {
     if (current.code === 0) {
       return {
         status: "already_authenticated",
-        stdout: current.stdout.trim()
+        stdout: stripAnsi(current.stdout).trim()
       };
     }
 
@@ -125,11 +125,12 @@ export class CodexService {
 
   private captureAuthOutput(chunk: string): void {
     const output = `${this.authState.output}${chunk}`;
-    const verificationUri = this.authState.verificationUri ?? output.match(/https:\/\/\S+/)?.[0];
-    const userCode = this.authState.userCode ?? output.match(/\b[A-Z0-9]{4,}-[A-Z0-9-]{4,}\b/)?.[0];
+    const cleanOutput = stripAnsi(output);
+    const verificationUri = this.authState.verificationUri ?? parseVerificationUri(cleanOutput);
+    const userCode = this.authState.userCode ?? parseUserCode(cleanOutput);
     this.authState = {
       ...this.authState,
-      output: output.slice(-4000),
+      output: cleanOutput.slice(-4000),
       verificationUri,
       userCode
     };
@@ -174,11 +175,23 @@ function compactEnv(env: NodeJS.ProcessEnv): Record<string, string> {
   );
 }
 
+function parseVerificationUri(output: string): string | undefined {
+  return output.match(/https:\/\/[^\s]+/)?.[0].replace(/[).,;]+$/, "");
+}
+
+function parseUserCode(output: string): string | undefined {
+  return output.match(/\b[A-Z0-9]{4,}-[A-Z0-9-]{4,}\b/)?.[0];
+}
+
+function stripAnsi(value: string): string {
+  return value.replace(/\u001b\[[0-9;?]*[ -/]*[@-~]/g, "");
+}
+
 async function waitForAuthCode(getState: () => AuthProcessState): Promise<void> {
   const deadline = Date.now() + 10_000;
   while (Date.now() < deadline) {
     const state = getState();
-    if (state.userCode || state.verificationUri || state.status !== "pending") return;
+    if (state.userCode || state.status !== "pending") return;
     await new Promise((resolve) => setTimeout(resolve, 250));
   }
 }

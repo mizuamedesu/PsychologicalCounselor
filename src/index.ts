@@ -317,14 +317,21 @@ async function handleForget(interaction: DiscordInteraction, env: Env): Promise<
 }
 
 function formatAuthStart(value: Record<string, unknown>): string {
+  const output = [
+    asString(value.output),
+    asRecord(value.authProcess)?.output ? asString(asRecord(value.authProcess)?.output) : undefined
+  ].filter(Boolean).join("\n");
+  const verificationUri = asString(value.verificationUri) || parseVerificationUri(output);
+  const userCode = asString(value.userCode) || parseUserCode(output);
+
   if (value.status === "already_authenticated") {
     return "Codexはすでにログイン済みです。";
   }
   if (value.status === "pending" || value.status === "started") {
     return [
       "Codex device loginを開始しました。",
-      value.verificationUri ? `URL: ${value.verificationUri}` : undefined,
-      value.userCode ? `code: \`${value.userCode}\`` : undefined,
+      verificationUri ? `URL: ${verificationUri}` : undefined,
+      userCode ? `code: \`${userCode}\`` : undefined,
       "ブラウザで認証が終わったら `/status` で確認できます。"
     ].filter(Boolean).join("\n");
   }
@@ -347,4 +354,24 @@ function parseDmCommand(content: string): { name: string | null; argument: strin
     name: match[1].toLowerCase(),
     argument: match[2].trim()
   };
+}
+
+function asRecord(value: unknown): Record<string, unknown> | undefined {
+  return value && typeof value === "object" ? value as Record<string, unknown> : undefined;
+}
+
+function asString(value: unknown): string | undefined {
+  return typeof value === "string" ? stripAnsi(value).trim() : undefined;
+}
+
+function parseVerificationUri(output: string): string | undefined {
+  return stripAnsi(output).match(/https:\/\/[^\s]+/)?.[0].replace(/[).,;]+$/, "");
+}
+
+function parseUserCode(output: string): string | undefined {
+  return stripAnsi(output).match(/\b[A-Z0-9]{4,}-[A-Z0-9-]{4,}\b/)?.[0];
+}
+
+function stripAnsi(value: string): string {
+  return value.replace(/\u001b\[[0-9;?]*[ -/]*[@-~]/g, "");
 }

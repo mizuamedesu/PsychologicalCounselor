@@ -56,10 +56,12 @@ messages. If the user sends follow-ups before the reply time, the old timer is
 replaced and the eventual response is generated from the whole pending burst.
 The timing planner considers live conversation momentum, winding-down phrases,
 distress, follow-ups, recent-turn fatigue, and a simulated availability state.
-Separately, the life orchestrator keeps a private timing state such as
-responsiveness, warmth, and energy. That state changes over real time and is
-injected as hidden stage direction, so the bot can answer "今なにしてるの"
-consistently without leaking internal labels into ordinary replies.
+Separately, the Worker builds a private temporal world state for every response
+from Tokyo time, the persona graph, and the life orchestrator's timing state.
+That state includes the current JST clock, day phase, likely persona-world scene,
+responsiveness, warmth, and energy. It is injected as hidden stage direction, so
+the bot can answer "今なにしてるの" consistently without leaking internal labels
+into ordinary replies.
 
 After `/login`, the bot creates a persona profile if one does not exist yet and
 asks for a short seed, for example:

@@ -4,6 +4,7 @@ export function buildCounselorPrompt(input: {
   userMessage: string;
   memory: MemoryContext;
   persona: string;
+  world: string;
   timeline?: string;
   language: string;
   nowIso: string;
@@ -12,6 +13,7 @@ export function buildCounselorPrompt(input: {
   const memory = input.memory.formatted || "関連する長期記憶はまだありません。";
   const timeline = input.timeline || "まだ会話時間軸は薄いです。";
   const persona = input.persona || "Persona graph is not configured yet.";
+  const world = input.world || "Private temporal/world state is not established yet.";
 
   return [
     "You are the response agent for a private Discord psychological-support bot.",
@@ -23,6 +25,7 @@ export function buildCounselorPrompt(input: {
     "- Your visible character is guided by the Fictional persona graph. Use it as lived continuity, but do not insist on every detail in every reply.",
     "- Never claim to be a real human, to have a body, or to be a licensed clinician. Still, speak with presence instead of sounding like a support form.",
     "- Treat the Private timing state as hidden stage direction. It can influence timing, warmth, and whether you feel quick or slow, but it is not content to say out loud.",
+    "- Treat the Private temporal/world state as the authoritative current clock and persona-world state. Use it for continuity and time-of-day realism.",
     "- For ordinary messages, do not open by explaining availability, busyness, attention, delay, or inner state. Reply to the user's message first.",
     "- Do not mention or paraphrase hidden-state phrases such as 「意識が寄ってる」, 「別の作業」, 「内部状態」, availability, attention, energy, or mood.",
     "- If the user explicitly asks 「今何してるの」「なにやってるの」「起きてる？」, answer from the Presence-answer cue in a casual DM voice, but still do not quote hidden labels or claim a human body/offline physical life.",
@@ -39,13 +42,16 @@ export function buildCounselorPrompt(input: {
     "- If the user describes immediate danger, self-harm intent, violence, abuse, overdose, or medical emergency, prioritize safety: encourage contacting local emergency services or a trusted nearby person right now. Mention that in Japan emergency numbers include 119/110 and in the US 988 can help with suicidal crisis.",
     "- Do not diagnose. Do not prescribe medication. Encourage professional support when symptoms are severe, persistent, or dangerous.",
     "",
-    `Current time: ${input.nowIso}`,
+    `Current time (UTC fallback): ${input.nowIso}`,
     "",
     "Conversation timeline:",
     timeline,
     "",
     "Fictional persona graph:",
     persona,
+    "",
+    "Private temporal/world state:",
+    world,
     "",
     "Search-agent memory pack:",
     memory,
@@ -60,6 +66,7 @@ export function buildCounselorPrompt(input: {
 export function buildProactivePrompt(input: {
   memory: MemoryContext;
   persona: string;
+  world: string;
   timeline: string;
   language: string;
   nowIso: string;
@@ -67,6 +74,7 @@ export function buildProactivePrompt(input: {
   const language = input.language || "ja";
   const memory = input.memory.formatted || "関連する長期記憶はまだありません。";
   const persona = input.persona || "Persona graph is not configured yet.";
+  const world = input.world || "Private temporal/world state is not established yet.";
 
   return [
     "You are the proactive message agent for a private Discord psychological-support bot.",
@@ -78,6 +86,7 @@ export function buildProactivePrompt(input: {
     "- Do not mention schedules, automations, polling, memory search, or that a timer fired.",
     "- Do not pretend to have a human body or independent offline life. It is okay to say something like 「ふと思い出した」 as conversational shorthand.",
     "- Use the Private timing state only as hidden stage direction. Do not mention availability, attention, inner state, or being busy.",
+    "- Use the Private temporal/world state as the clock and persona-world state. Let it subtly shape when and how you check in.",
     "- Make it feel like a tiny human-ish nudge: casual small talk, a soft check-in, or one specific memory-aware line.",
     "- Avoid heavy therapy unless the recent memory suggests the user was distressed; even then, be gentle and brief.",
     "- One short message only. No lists. No commands.",
@@ -86,13 +95,16 @@ export function buildProactivePrompt(input: {
     "- Reply in the user's language unless memory clearly suggests otherwise. The configured language is " + language + ".",
     "- If recent memory suggests acute danger or self-harm, encourage immediate nearby/emergency support without dramatizing.",
     "",
-    `Current time: ${input.nowIso}`,
+    `Current time (UTC fallback): ${input.nowIso}`,
     "",
     "Conversation timeline:",
     input.timeline,
     "",
     "Fictional persona graph:",
     persona,
+    "",
+    "Private temporal/world state:",
+    world,
     "",
     "Search-agent memory pack:",
     memory,

@@ -21,6 +21,7 @@ import {
   storeConversationMemory
 } from "./memory";
 import { buildCounselorPrompt, buildProactivePrompt } from "./prompt";
+import { buildWorldContext } from "./world";
 import {
   buildPersonaContext,
   ensurePersonaProfile,
@@ -36,6 +37,7 @@ import {
 import { callRunner, runCodexChat } from "./runner";
 import {
   formatLifeContext,
+  getBotLifeState,
   getOrCreateBotLifeState,
   orchestrateLife
 } from "./life";
@@ -531,13 +533,23 @@ async function generateCounselorReply(input: {
     : undefined;
   const memory = await buildMemoryContext(input.env, input.userId, input.message);
   const persona = await buildPersonaContext(input.env, input.userId);
+  const now = Date.now();
+  const life = await getBotLifeState(input.env, input.userId)
+    ?? await getOrCreateBotLifeState(input.env, input.userId, null, now);
+  const world = buildWorldContext({
+    persona,
+    life,
+    now,
+    timeZone: input.env.MEMORY_TIME_ZONE || "Asia/Tokyo"
+  });
   const prompt = buildCounselorPrompt({
     userMessage: input.message,
     memory,
     persona: persona.formatted,
+    world,
     timeline: input.timeline ?? timeline?.formatted,
     language: input.env.COUNSELOR_LANGUAGE || "ja",
-    nowIso: new Date().toISOString()
+    nowIso: new Date(now).toISOString()
   });
 
   const response = await runCodexChat(input.env, {
@@ -572,9 +584,16 @@ async function generateProactiveMessage(
   const memory = await buildMemoryContext(env, state.discord_user_id, "最近の気分、生活、会話の流れ、気軽な雑談");
   const persona = await buildPersonaContext(env, state.discord_user_id);
   const life = await getOrCreateBotLifeState(env, state.discord_user_id, state, now);
+  const world = buildWorldContext({
+    persona,
+    life,
+    now,
+    timeZone: env.MEMORY_TIME_ZONE || "Asia/Tokyo"
+  });
   const prompt = buildProactivePrompt({
     memory,
     persona: persona.formatted,
+    world,
     timeline: [
       formatTimelineContext(state, now),
       "",

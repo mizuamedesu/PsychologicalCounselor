@@ -21,6 +21,18 @@ import {
   storeConversationMemory
 } from "./memory";
 import { buildCounselorPrompt, buildProactivePrompt } from "./prompt";
+import {
+  buildPersonaContext,
+  ensurePersonaProfile,
+  expandDuePersonaWorlds,
+  formatPersonaStatus,
+  initializePersonaFromSeed,
+  looksLikePersonaSeed,
+  personaBotUsername,
+  personaNeedsSeed,
+  personaSetupPrompt,
+  resetPersona
+} from "./persona";
 import { callRunner, runCodexChat } from "./runner";
 import {
   formatLifeContext,
@@ -128,16 +140,21 @@ async function handleDiscordDm(request: Request, env: Env): Promise<Response> {
   const command = parseDmCommand(content);
   try {
     if (command.name === "login") {
-      return jsonResponse({ content: formatAuthStart(await callRunner<Record<string, unknown>>(env, "/auth/start", {})) });
+      const result = await callRunner<Record<string, unknown>>(env, "/auth/start", {});
+      const profile = await ensurePersonaProfile(env, body.userId);
+      return jsonResponse({
+        content: appendPersonaSetup(formatAuthStart(result), profile.status !== "active")
+      });
     }
 
     if (command.name === "status") {
-      const [auth, stats] = await Promise.all([
+      const [auth, stats, persona] = await Promise.all([
         callRunner<Record<string, unknown>>(env, "/auth/status"),
-        memoryStats(env, body.userId)
+        memoryStats(env, body.userId),
+        formatPersonaStatus(env, body.userId)
       ]);
       return jsonResponse({
-        content: [`runner: ${env.RUNNER_BACKEND || "container"}`, formatAuthStatus(auth), stats].join("\n\n")
+        content: [`runner: ${env.RUNNER_BACKEND || "container"}`, formatAuthStatus(auth), stats, persona].join("\n\n")
       });
     }
 
@@ -152,6 +169,30 @@ async function handleDiscordDm(request: Request, env: Env): Promise<Response> {
       }
       const deleted = await forgetAllMemory(env, body.userId);
       return jsonResponse({ content: `${deleted}件の記憶を削除しました。` });
+    }
+
+    if (command.name === "persona") {
+      return jsonResponse(await handlePersonaCommand(env, body.userId, command.argument));
+    }
+
+    if (await personaNeedsSeed(env, body.userId)) {
+      if (!looksLikePersonaSeed(content)) {
+        return jsonResponse({ content: personaSetupPrompt() });
+      }
+      const persona = await initializePersonaFromSeed({
+        env,
+        userId: body.userId,
+        seed: content
+      });
+      return jsonResponse({
+        content: [
+          "決めた。",
+          persona.summary,
+          "",
+          "この子として時間を進めていくね。"
+        ].join("\n"),
+        botUsername: personaBotUsername(persona.profile)
+      } satisfies DiscordDmResponse);
     }
 
     const reply = await generateCounselorReply({
@@ -199,6 +240,46 @@ async function handleDiscordDmIngest(request: Request, env: Env): Promise<Respon
       scheduledAt: Date.now(),
       generation: 0,
       timingMode: "command"
+    } satisfies DmIngestResponse);
+  }
+
+  if (await personaNeedsSeed(env, body.userId)) {
+    if (!looksLikePersonaSeed(content)) {
+      return jsonResponse({
+        accepted: true,
+        delayMs: 800,
+        scheduledAt: Date.now() + 800,
+        generation: 0,
+        timingMode: "persona_setup",
+        immediate: true,
+        content: [
+          "うん、話す前にまず私のペルソナを固めたい。",
+          "",
+          personaSetupPrompt()
+        ].join("\n")
+      } satisfies DmIngestResponse);
+    }
+
+    const persona = await initializePersonaFromSeed({
+      env,
+      userId: body.userId,
+      seed: content
+    });
+    const delayMs = randomImmediateDelay();
+    return jsonResponse({
+      accepted: true,
+      delayMs,
+      scheduledAt: Date.now() + delayMs,
+      generation: 0,
+      timingMode: "persona_setup",
+      immediate: true,
+      botUsername: personaBotUsername(persona.profile),
+      content: [
+        "決めた。",
+        persona.summary,
+        "",
+        "この子として時間を進めていくね。足りない過去の出来事や癖は、会話と時間経過に合わせて少しずつ増やしていく。"
+      ].join("\n")
     } satisfies DmIngestResponse);
   }
 
@@ -328,8 +409,13 @@ async function handleOrchestrate(request: Request, env: Env): Promise<Response> 
     limit: Math.max(1, Math.min(body.limit ?? 3, 5)),
     force: body.force ?? false
   });
+  const personaExpansions = await expandDuePersonaWorlds({
+    env,
+    limit: Math.max(1, Math.min(body.limit ?? 3, 5)),
+    force: body.force ?? false
+  });
 
-  return jsonResponse({ states } satisfies OrchestrateResponse);
+  return jsonResponse({ states, personaExpansions } satisfies OrchestrateResponse);
 }
 
 async function handleDiscordInteraction(
@@ -393,6 +479,11 @@ async function handleChat(interaction: DiscordInteraction, env: Env): Promise<vo
   }
 
   try {
+    if (await personaNeedsSeed(env, userId)) {
+      await editOriginalInteraction(env.DISCORD_APPLICATION_ID, interaction.token, personaSetupPrompt());
+      return;
+    }
+
     const reply = await generateCounselorReply({
       env,
       userId,
@@ -430,9 +521,11 @@ async function generateCounselorReply(input: {
     })
     : undefined;
   const memory = await buildMemoryContext(input.env, input.userId, input.message);
+  const persona = await buildPersonaContext(input.env, input.userId);
   const prompt = buildCounselorPrompt({
     userMessage: input.message,
     memory,
+    persona: persona.formatted,
     timeline: input.timeline ?? timeline?.formatted,
     language: input.env.COUNSELOR_LANGUAGE || "ja",
     nowIso: new Date().toISOString()
@@ -468,9 +561,11 @@ async function generateProactiveMessage(
   now: number
 ): Promise<string> {
   const memory = await buildMemoryContext(env, state.discord_user_id, "最近の気分、生活、会話の流れ、気軽な雑談");
+  const persona = await buildPersonaContext(env, state.discord_user_id);
   const life = await getOrCreateBotLifeState(env, state.discord_user_id, state, now);
   const prompt = buildProactivePrompt({
     memory,
+    persona: persona.formatted,
     timeline: [
       formatTimelineContext(state, now),
       "",
@@ -502,7 +597,13 @@ async function generateProactiveMessage(
 async function handleLogin(interaction: DiscordInteraction, env: Env): Promise<void> {
   try {
     const result = await callRunner<Record<string, unknown>>(env, "/auth/start", {});
-    await editOriginalInteraction(env.DISCORD_APPLICATION_ID, interaction.token, formatAuthStart(result));
+    const userId = interactionUserId(interaction);
+    const profile = userId ? await ensurePersonaProfile(env, userId) : null;
+    await editOriginalInteraction(
+      env.DISCORD_APPLICATION_ID,
+      interaction.token,
+      appendPersonaSetup(formatAuthStart(result), profile?.status !== "active")
+    );
   } catch (error) {
     console.error(error);
     await editOriginalInteraction(
@@ -518,15 +619,16 @@ async function handleStatus(interaction: DiscordInteraction, env: Env): Promise<
   if (!userId) return;
 
   try {
-    const [auth, stats] = await Promise.all([
+    const [auth, stats, persona] = await Promise.all([
       callRunner<Record<string, unknown>>(env, "/auth/status"),
-      memoryStats(env, userId)
+      memoryStats(env, userId),
+      formatPersonaStatus(env, userId)
     ]);
 
     await editOriginalInteraction(
       env.DISCORD_APPLICATION_ID,
       interaction.token,
-      [`runner: ${env.RUNNER_BACKEND || "container"}`, formatAuthStatus(auth), stats].join("\n\n")
+      [`runner: ${env.RUNNER_BACKEND || "container"}`, formatAuthStatus(auth), stats, persona].join("\n\n")
     );
   } catch (error) {
     console.error(error);
@@ -585,6 +687,59 @@ async function handleForget(interaction: DiscordInteraction, env: Env): Promise<
   }
 }
 
+async function handlePersonaCommand(
+  env: Env,
+  userId: string,
+  argument: string
+): Promise<DiscordDmResponse> {
+  const trimmed = argument.trim();
+  if (!trimmed || trimmed === "status") {
+    return {
+      content: [
+        await formatPersonaStatus(env, userId),
+        "",
+        "作り直すなら `/persona reset`、そのまま再設定するなら `/persona 名前はゆい、21歳...` みたいに送ってください。"
+      ].join("\n")
+    };
+  }
+
+  if (/^(reset|clear|やり直し|リセット)$/i.test(trimmed)) {
+    await resetPersona(env, userId);
+    return {
+      content: [
+        "ペルソナをリセットしました。",
+        "",
+        personaSetupPrompt()
+      ].join("\n")
+    };
+  }
+
+  if (!looksLikePersonaSeed(trimmed)) {
+    return {
+      content: [
+        "ペルソナ材料としては少し短いかも。",
+        "",
+        personaSetupPrompt()
+      ].join("\n")
+    };
+  }
+
+  const persona = await initializePersonaFromSeed({
+    env,
+    userId,
+    seed: trimmed
+  });
+  return {
+    content: [
+      "更新した。",
+      persona.summary,
+      "",
+      "この人格と世界線で続けるね。"
+    ].join("\n"),
+    botUsername: personaBotUsername(persona.profile)
+  };
+}
+
 function formatAuthStart(value: Record<string, unknown>): string {
   const output = [
     asString(value.output),
@@ -605,6 +760,15 @@ function formatAuthStart(value: Record<string, unknown>): string {
     ].filter(Boolean).join("\n");
   }
   return formatObject(value);
+}
+
+function appendPersonaSetup(content: string, needsSetup: boolean): string {
+  if (!needsSetup) return content;
+  return [
+    content,
+    "",
+    personaSetupPrompt()
+  ].join("\n");
 }
 
 function formatObject(value: unknown): string {
@@ -633,7 +797,7 @@ function isRunnerAuthorized(request: Request, env: Env): boolean {
 
 function parseDmCommand(content: string): { name: string | null; argument: string } {
   const trimmed = content.trim();
-  const match = trimmed.match(/^[/!](login|status|memory|forget)\b\s*(.*)$/i);
+  const match = trimmed.match(/^[/!](login|status|memory|forget|persona)\b\s*(.*)$/i);
   if (!match) return { name: null, argument: trimmed };
   return {
     name: match[1].toLowerCase(),
@@ -659,4 +823,10 @@ function parseUserCode(output: string): string | undefined {
 
 function stripAnsi(value: string): string {
   return value.replace(/\u001b\[[0-9;?]*[ -/]*[@-~]/g, "");
+}
+
+function randomImmediateDelay(): number {
+  const bytes = new Uint32Array(1);
+  crypto.getRandomValues(bytes);
+  return 1_200 + (bytes[0] % 2_800);
 }

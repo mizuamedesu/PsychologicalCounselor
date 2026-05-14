@@ -22,6 +22,7 @@ const lifeOrchestrationIntervalMs = numberEnv("LIFE_ORCHESTRATION_INTERVAL_MS", 
 type WorkerDmResponse = {
   content?: string;
   delayMs?: number;
+  botUsername?: string;
   error?: string;
 };
 
@@ -40,6 +41,9 @@ type DmIngestResponse = {
   scheduledAt?: number;
   generation?: number;
   timingMode?: string;
+  content?: string;
+  immediate?: boolean;
+  botUsername?: string;
   error?: string;
 };
 
@@ -77,6 +81,7 @@ type SendableChannel = {
 
 const pendingReplyTimers = new Map<string, ReturnType<typeof setTimeout>>();
 const replyInFlight = new Set<string>();
+let lastUsernameChange: { username: string; at: number } | null = null;
 
 const client = new Client({
   intents: [
@@ -153,6 +158,14 @@ async function handleDirectMessage(message: Message): Promise<void> {
       return;
     }
 
+    if (body.botUsername) {
+      await applyBotUsername(body.botUsername);
+    }
+    if (body.content) {
+      await waitWithTyping(message, body.delayMs ?? 0);
+      await sendChunked(message, body.content);
+      return;
+    }
     if (body.generation === undefined) return;
     schedulePendingReply({
       userId: message.author.id,
@@ -189,6 +202,9 @@ async function handleCommandMessage(message: Message, content: string): Promise<
     return;
   }
 
+  if (body.botUsername) {
+    await applyBotUsername(body.botUsername);
+  }
   await sendChunked(message, body.content || "空の応答でした。");
 }
 
@@ -379,8 +395,40 @@ async function maintainTypingUntil(channel: SendableChannel, promise: Promise<un
   }
 }
 
+async function applyBotUsername(username: string): Promise<void> {
+  const next = sanitizeDiscordUsername(username);
+  if (!next || !client.user) return;
+  if (client.user.username === next) return;
+  if (lastUsernameChange?.username === next) return;
+  if (lastUsernameChange && Date.now() - lastUsernameChange.at < 30 * 60_000) {
+    console.warn(`skip username change to ${next}: changed too recently`);
+    return;
+  }
+
+  try {
+    await client.user.setUsername(next);
+    lastUsernameChange = { username: next, at: Date.now() };
+    console.log(`discord bot username changed to ${next}`);
+  } catch (error) {
+    console.warn("failed to change discord bot username", error);
+  }
+}
+
+function sanitizeDiscordUsername(value: string): string | null {
+  const sanitized = value
+    .replace(/[@#:`]/g, "")
+    .replace(/discord/ig, "d")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 32);
+  if (sanitized.length < 2) return null;
+  const lowered = sanitized.toLowerCase();
+  if (lowered === "everyone" || lowered === "here") return `${sanitized}_`.slice(0, 32);
+  return sanitized;
+}
+
 function isCommand(content: string): boolean {
-  return /^[/!](login|status|memory|forget)\b/i.test(content.trim());
+  return /^[/!](login|status|memory|forget|persona)\b/i.test(content.trim());
 }
 
 function requiredEnv(name: string): string {

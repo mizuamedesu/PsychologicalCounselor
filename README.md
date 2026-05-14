@@ -61,6 +61,27 @@ Separately, the life orchestrator keeps a current activity such as "会話に意
 That state changes over real time and is injected into response prompts so the
 bot can answer "今なにしてるの" consistently.
 
+After `/login`, the bot creates a persona profile if one does not exist yet and
+asks for a short seed, for example:
+
+```text
+名前はゆい、21歳、お茶の水女子大に通う。
+話し方はやわらかめで、少し砕けてる。
+あなたとの距離感は、親しいDM相手くらい。
+```
+
+That seed is stored separately from conversation memory as a D1 persona graph:
+`persona_profiles`, `persona_nodes`, `persona_edges`, and `persona_events`.
+The graph starts sparse and `/orchestrate` expands it over time with small
+fictional backstory nodes. Response and proactive prompts receive this persona
+graph as continuity context alongside the memory pack and life state.
+When a seed includes a usable name, the on-prem Discord bot attempts to update
+its bot account username to that persona name. Discord treats this as a global
+bot username change, not a per-DM nickname, and Discord may rate-limit or reject
+some names.
+Use `/persona status`, `/persona reset`, or `/persona 名前は...` in DM to inspect
+or rebuild the persona later.
+
 ## Local Mac Runner
 
 Create `.env` from `.env.example`, then:

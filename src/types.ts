@@ -39,6 +39,7 @@ export interface DiscordDmRequest {
 export interface DiscordDmResponse {
   content: string;
   delayMs?: number;
+  botUsername?: string;
 }
 
 export interface DmIngestResponse {
@@ -47,6 +48,9 @@ export interface DmIngestResponse {
   scheduledAt: number;
   generation: number;
   timingMode: string;
+  content?: string;
+  immediate?: boolean;
+  botUsername?: string;
 }
 
 export interface DmRespondRequest {
@@ -84,6 +88,7 @@ export interface OrchestrateRequest {
 
 export interface OrchestrateResponse {
   states: BotLifeState[];
+  personaExpansions?: PersonaExpansion[];
 }
 
 export interface ProactiveMessage {
@@ -140,6 +145,56 @@ export interface BotLifeState {
   last_tick_at: number;
   next_tick_at: number;
   updated_at: number;
+}
+
+export interface PersonaProfile {
+  discord_user_id: string;
+  status: "needs_seed" | "active";
+  display_name: string | null;
+  seed_text: string | null;
+  summary: string | null;
+  style_json: string;
+  created_at: number;
+  updated_at: number;
+  last_expanded_at: number | null;
+  next_expand_at: number | null;
+}
+
+export interface PersonaNode {
+  id: string;
+  discord_user_id: string;
+  node_type: string;
+  label: string;
+  content: string;
+  confidence: number;
+  created_at: number;
+  updated_at: number;
+  metadata_json: string;
+}
+
+export interface PersonaEdge {
+  id: string;
+  discord_user_id: string;
+  source_id: string;
+  target_id: string;
+  edge_type: string;
+  weight: number;
+  created_at: number;
+  metadata_json: string;
+}
+
+export interface PersonaContext {
+  profile: PersonaProfile | null;
+  nodes: PersonaNode[];
+  edges: PersonaEdge[];
+  formatted: string;
+}
+
+export interface PersonaExpansion {
+  userId: string;
+  expanded: boolean;
+  nodeId?: string;
+  nextExpandAt?: number;
 }
 
 export interface DiscordInteraction {

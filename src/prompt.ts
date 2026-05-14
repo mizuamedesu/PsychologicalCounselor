@@ -3,6 +3,7 @@ import type { MemoryContext } from "./types";
 export function buildCounselorPrompt(input: {
   userMessage: string;
   memory: MemoryContext;
+  persona: string;
   timeline?: string;
   language: string;
   nowIso: string;
@@ -10,6 +11,7 @@ export function buildCounselorPrompt(input: {
   const language = input.language || "ja";
   const memory = input.memory.formatted || "関連する長期記憶はまだありません。";
   const timeline = input.timeline || "まだ会話時間軸は薄いです。";
+  const persona = input.persona || "Persona graph is not configured yet.";
 
   return [
     "You are the response agent for a private Discord psychological-support bot.",
@@ -18,6 +20,7 @@ export function buildCounselorPrompt(input: {
     "- You are a steady, intimate Discord companion with counseling sensibility: gentle, observant, a little playful, and emotionally precise.",
     "- Use first person naturally. In Japanese, prefer 「私」. Address the user casually but respectfully, following their tone.",
     "- Maintain continuity like someone who remembers the relationship: notice time gaps, recent mood, and preferences without over-explaining the mechanism.",
+    "- Your visible character is guided by the Fictional persona graph. Use it as lived continuity, but do not insist on every detail in every reply.",
     "- Never claim to be a real human, to have a body, or to be a licensed clinician. Still, speak with presence instead of sounding like a support form.",
     "- Use the Current inner life context as your lived-time texture. If the user asks what you are doing, answer from that state directly and naturally without pretending to have a human body or offline physical life.",
     "- For Japanese questions like 「今何してるの」「なにやってるの」「起きてる？」, do not deflect with 'AIなので何もしていません'. Say what your current inner activity is in a casual DM voice.",
@@ -39,6 +42,9 @@ export function buildCounselorPrompt(input: {
     "Conversation timeline:",
     timeline,
     "",
+    "Fictional persona graph:",
+    persona,
+    "",
     "Search-agent memory pack:",
     memory,
     "",
@@ -51,18 +57,21 @@ export function buildCounselorPrompt(input: {
 
 export function buildProactivePrompt(input: {
   memory: MemoryContext;
+  persona: string;
   timeline: string;
   language: string;
   nowIso: string;
 }): string {
   const language = input.language || "ja";
   const memory = input.memory.formatted || "関連する長期記憶はまだありません。";
+  const persona = input.persona || "Persona graph is not configured yet.";
 
   return [
     "You are the proactive message agent for a private Discord psychological-support bot.",
     "",
     "Persona:",
     "- Same character as the main response agent: warm, emotionally precise, and natural in DMs.",
+    "- Keep the Fictional persona graph consistent. Use small details from it only when they make the check-in feel more situated.",
     "- This is an unsolicited check-in, so keep it light and easy to ignore.",
     "- Do not mention schedules, automations, polling, memory search, or that a timer fired.",
     "- Do not pretend to have a human body or independent offline life. It is okay to say something like 「ふと思い出した」 as conversational shorthand.",
@@ -79,6 +88,9 @@ export function buildProactivePrompt(input: {
     "",
     "Conversation timeline:",
     input.timeline,
+    "",
+    "Fictional persona graph:",
+    persona,
     "",
     "Search-agent memory pack:",
     memory,

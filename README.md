@@ -80,7 +80,9 @@ its bot account username to that persona name. Discord treats this as a global
 bot username change, not a per-DM nickname, and Discord may rate-limit or reject
 some names.
 Use `/persona status`, `/persona reset`, or `/persona 名前は...` in DM to inspect
-or rebuild the persona later.
+or rebuild the persona later. Rebuilding a persona intentionally resets all
+per-user app state first, including conversation memory, pending replies, life
+state, and the old persona graph.
 
 ## Local Mac Runner
 

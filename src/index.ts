@@ -30,8 +30,7 @@ import {
   looksLikePersonaSeed,
   personaBotUsername,
   personaNeedsSeed,
-  personaSetupPrompt,
-  resetPersona
+  personaSetupPrompt
 } from "./persona";
 import { callRunner, runCodexChat } from "./runner";
 import {
@@ -179,6 +178,7 @@ async function handleDiscordDm(request: Request, env: Env): Promise<Response> {
       if (!looksLikePersonaSeed(content)) {
         return jsonResponse({ content: personaSetupPrompt() });
       }
+      await resetAllUserData(env, body.userId);
       const persona = await initializePersonaFromSeed({
         env,
         userId: body.userId,
@@ -260,6 +260,7 @@ async function handleDiscordDmIngest(request: Request, env: Env): Promise<Respon
       } satisfies DmIngestResponse);
     }
 
+    await resetAllUserData(env, body.userId);
     const persona = await initializePersonaFromSeed({
       env,
       userId: body.userId,
@@ -704,10 +705,10 @@ async function handlePersonaCommand(
   }
 
   if (/^(reset|clear|やり直し|リセット)$/i.test(trimmed)) {
-    await resetPersona(env, userId);
+    const deleted = await resetAllUserData(env, userId);
     return {
       content: [
-        "ペルソナをリセットしました。",
+        `ペルソナを作り直すために、このユーザー分のDB状態を初期化しました。memory ${deleted.memoryItems}件、pending ${deleted.pendingMessages}件。`,
         "",
         personaSetupPrompt()
       ].join("\n")
@@ -724,6 +725,7 @@ async function handlePersonaCommand(
     };
   }
 
+  await resetAllUserData(env, userId);
   const persona = await initializePersonaFromSeed({
     env,
     userId,
@@ -737,6 +739,35 @@ async function handlePersonaCommand(
       "この人格と世界線で続けるね。"
     ].join("\n"),
     botUsername: personaBotUsername(persona.profile)
+  };
+}
+
+async function resetAllUserData(
+  env: Env,
+  userId: string
+): Promise<{ memoryItems: number; pendingMessages: number }> {
+  const pending = await env.DB.prepare(
+    `SELECT COUNT(*) AS count
+     FROM dm_pending_messages
+     WHERE discord_user_id = ?`
+  ).bind(userId).first<{ count: number }>();
+  const memoryItems = await forgetAllMemory(env, userId);
+
+  await env.DB.batch([
+    env.DB.prepare(`DELETE FROM dm_pending_messages WHERE discord_user_id = ?`).bind(userId),
+    env.DB.prepare(`DELETE FROM conversation_states WHERE discord_user_id = ?`).bind(userId),
+    env.DB.prepare(`DELETE FROM bot_life_states WHERE discord_user_id = ?`).bind(userId),
+    env.DB.prepare(`DELETE FROM bot_life_events WHERE discord_user_id = ?`).bind(userId),
+    env.DB.prepare(`DELETE FROM persona_edges WHERE discord_user_id = ?`).bind(userId),
+    env.DB.prepare(`DELETE FROM persona_nodes WHERE discord_user_id = ?`).bind(userId),
+    env.DB.prepare(`DELETE FROM persona_profiles WHERE discord_user_id = ?`).bind(userId),
+    env.DB.prepare(`DELETE FROM persona_events WHERE discord_user_id = ?`).bind(userId),
+    env.DB.prepare(`DELETE FROM memory_events WHERE discord_user_id = ?`).bind(userId)
+  ]);
+
+  return {
+    memoryItems,
+    pendingMessages: pending?.count ?? 0
   };
 }
 

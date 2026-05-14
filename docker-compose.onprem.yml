@@ -22,5 +22,17 @@ services:
       - codex-workspace:/workspace
       - ${HOST_CODEX_HOME:-./.codex-state}:/home/codex/.codex
 
+  discord-bot:
+    build:
+      context: .
+      dockerfile: bot/Dockerfile
+    restart: unless-stopped
+    depends_on:
+      - codex-runner
+    environment:
+      DISCORD_BOT_TOKEN: ${DISCORD_BOT_TOKEN}
+      WORKER_DM_URL: ${WORKER_DM_URL:-https://psychological-counselor.fasutotesuto.workers.dev/dm}
+      RUNNER_SHARED_SECRET: ${RUNNER_SHARED_SECRET}
+
 volumes:
   codex-workspace:

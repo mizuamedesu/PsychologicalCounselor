@@ -83,9 +83,36 @@ export function interactionUserId(interaction: DiscordInteraction): string | nul
   return interaction.member?.user?.id ?? interaction.user?.id ?? null;
 }
 
-export function isOwner(interaction: DiscordInteraction, ownerId: string): boolean {
-  const userId = interactionUserId(interaction);
-  return Boolean(userId && ownerId && userId === ownerId);
+export function isOwner(
+  interaction: DiscordInteraction,
+  ownerId: string,
+  ownerUsername?: string
+): boolean {
+  const user = interaction.member?.user ?? interaction.user;
+  const userId = user?.id ?? null;
+  return isOwnerIdentity({
+    userId,
+    usernames: user?.username ? [user.username] : [],
+    ownerId,
+    ownerUsername
+  });
+}
+
+export function isOwnerIdentity(input: {
+  userId?: string | null;
+  usernames?: Array<string | null | undefined>;
+  ownerId: string;
+  ownerUsername?: string;
+}): boolean {
+  if (input.userId && input.ownerId && input.userId === input.ownerId) return true;
+
+  if (!input.ownerId && input.ownerUsername) {
+    return Boolean(input.usernames?.some((username) =>
+      username?.toLowerCase() === input.ownerUsername?.toLowerCase()
+    ));
+  }
+
+  return false;
 }
 
 export async function readVerifiedDiscordInteraction(

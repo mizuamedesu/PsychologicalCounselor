@@ -4,6 +4,7 @@ export interface Env {
   DISCORD_APPLICATION_ID: string;
   DISCORD_PUBLIC_KEY: string;
   OWNER_DISCORD_USER_ID: string;
+  OWNER_DISCORD_USERNAME?: string;
   COUNSELOR_LANGUAGE: string;
   MEMORY_TIME_ZONE?: string;
   EMBEDDING_MODEL: string;
@@ -24,6 +25,15 @@ export interface Env {
   AI: Ai;
   MEMORY_INDEX: VectorizeIndex;
   CODEX_RUNNER?: DurableObjectNamespace<CodexRunnerContainer>;
+}
+
+export interface DiscordDmRequest {
+  userId: string;
+  username?: string;
+  globalName?: string | null;
+  channelId?: string;
+  messageId?: string;
+  content: string;
 }
 
 export interface DiscordInteraction {

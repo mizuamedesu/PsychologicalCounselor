@@ -49,6 +49,7 @@
     "DISCORD_APPLICATION_ID": "replace-with-discord-application-id",
     "DISCORD_PUBLIC_KEY": "replace-with-discord-public-key",
     "OWNER_DISCORD_USER_ID": "replace-with-your-discord-user-id",
+    "OWNER_DISCORD_USERNAME": "",
     "COUNSELOR_LANGUAGE": "ja",
     "MEMORY_TIME_ZONE": "Asia/Tokyo",
     "EMBEDDING_MODEL": "@cf/baai/bge-m3",

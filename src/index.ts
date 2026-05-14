@@ -8,6 +8,7 @@ import {
   immediateMessage,
   interactionUserId,
   isOwner,
+  isOwnerIdentity,
   jsonResponse,
   readVerifiedDiscordInteraction
 } from "./discord";
@@ -20,7 +21,7 @@ import {
 } from "./memory";
 import { buildCounselorPrompt } from "./prompt";
 import { callRunner, runCodexChat } from "./runner";
-import type { DiscordInteraction, Env } from "./types";
+import type { DiscordDmRequest, DiscordInteraction, Env } from "./types";
 
 export class CodexRunnerContainer extends Container {
   defaultPort = 8789;
@@ -45,9 +46,78 @@ export default {
       return handleDiscordInteraction(request, env, ctx);
     }
 
+    if (request.method === "POST" && url.pathname === "/dm") {
+      return handleDiscordDm(request, env);
+    }
+
     return new Response("Not found", { status: 404 });
   }
 } satisfies ExportedHandler<Env>;
+
+async function handleDiscordDm(request: Request, env: Env): Promise<Response> {
+  if (!isRunnerAuthorized(request, env)) {
+    return jsonResponse({ error: "unauthorized" }, { status: 401 });
+  }
+
+  const body = await request.json<DiscordDmRequest>();
+  const content = body.content?.trim();
+  if (!body.userId || !content) {
+    return jsonResponse({ error: "userId and content are required" }, { status: 400 });
+  }
+
+  if (!isOwnerIdentity({
+    userId: body.userId,
+    usernames: [body.username, body.globalName],
+    ownerId: env.OWNER_DISCORD_USER_ID,
+    ownerUsername: env.OWNER_DISCORD_USERNAME
+  })) {
+    return jsonResponse({ error: "forbidden" }, { status: 403 });
+  }
+
+  const command = parseDmCommand(content);
+  try {
+    if (command.name === "login") {
+      return jsonResponse({ content: formatAuthStart(await callRunner<Record<string, unknown>>(env, "/auth/start", {})) });
+    }
+
+    if (command.name === "status") {
+      const [auth, stats] = await Promise.all([
+        callRunner<Record<string, unknown>>(env, "/auth/status"),
+        memoryStats(env, body.userId)
+      ]);
+      return jsonResponse({
+        content: [`runner: ${env.RUNNER_BACKEND || "container"}`, formatObject(auth), stats].join("\n\n")
+      });
+    }
+
+    if (command.name === "memory") {
+      if (!command.argument) return jsonResponse({ content: "検索語を続けてください。例: `/memory 最近の不安`" });
+      return jsonResponse({ content: await searchMemoryForDisplay(env, body.userId, command.argument) });
+    }
+
+    if (command.name === "forget") {
+      if (command.argument !== "confirm") {
+        return jsonResponse({ content: "`/forget confirm` でD1とVectorizeの記憶を全削除します。" });
+      }
+      const deleted = await forgetAllMemory(env, body.userId);
+      return jsonResponse({ content: `${deleted}件の記憶を削除しました。` });
+    }
+
+    const reply = await generateCounselorReply({
+      env,
+      userId: body.userId,
+      channelId: body.channelId,
+      interactionId: body.messageId,
+      message: content
+    });
+    return jsonResponse({ content: reply });
+  } catch (error) {
+    console.error(error);
+    return jsonResponse({
+      error: error instanceof Error ? error.message : String(error)
+    }, { status: 500 });
+  }
+}
 
 async function handleDiscordInteraction(
   request: Request,
@@ -65,7 +135,7 @@ async function handleDiscordInteraction(
     return immediateMessage("未対応のDiscord interactionです。");
   }
 
-  if (!isOwner(interaction, env.OWNER_DISCORD_USER_ID)) {
+  if (!isOwner(interaction, env.OWNER_DISCORD_USER_ID, env.OWNER_DISCORD_USERNAME)) {
     return immediateMessage("このbotはprivate運用なので、ownerだけが使えます。");
   }
 
@@ -110,29 +180,14 @@ async function handleChat(interaction: DiscordInteraction, env: Env): Promise<vo
   }
 
   try {
-    const memory = await buildMemoryContext(env, userId, message);
-    const prompt = buildCounselorPrompt({
-      userMessage: message,
-      memory,
-      language: env.COUNSELOR_LANGUAGE || "ja",
-      nowIso: new Date().toISOString()
-    });
-
-    const response = await runCodexChat(env, {
-      prompt,
-      model: env.CODEX_MODEL || undefined
-    });
-
-    const text = response.text.trim() || "うまく言葉にできませんでした。もう一度だけ送ってください。";
-    await editOriginalInteraction(env.DISCORD_APPLICATION_ID, interaction.token, text);
-    await storeConversationMemory({
+    const text = await generateCounselorReply({
       env,
       userId,
       channelId: interaction.channel_id,
       interactionId: interaction.id,
-      userMessage: message,
-      assistantMessage: text
+      message
     });
+    await editOriginalInteraction(env.DISCORD_APPLICATION_ID, interaction.token, text);
   } catch (error) {
     console.error(error);
     await editOriginalInteraction(
@@ -141,6 +196,38 @@ async function handleChat(interaction: DiscordInteraction, env: Env): Promise<vo
       `処理中に失敗しました。\n\`${error instanceof Error ? error.message : String(error)}\``
     );
   }
+}
+
+async function generateCounselorReply(input: {
+  env: Env;
+  userId: string;
+  channelId?: string;
+  interactionId?: string;
+  message: string;
+}): Promise<string> {
+  const memory = await buildMemoryContext(input.env, input.userId, input.message);
+  const prompt = buildCounselorPrompt({
+    userMessage: input.message,
+    memory,
+    language: input.env.COUNSELOR_LANGUAGE || "ja",
+    nowIso: new Date().toISOString()
+  });
+
+  const response = await runCodexChat(input.env, {
+    prompt,
+    model: input.env.CODEX_MODEL || undefined
+  });
+
+  const text = response.text.trim() || "うまく言葉にできませんでした。もう一度だけ送ってください。";
+  await storeConversationMemory({
+    env: input.env,
+    userId: input.userId,
+    channelId: input.channelId,
+    interactionId: input.interactionId,
+    userMessage: input.message,
+    assistantMessage: text
+  });
+  return text;
 }
 
 async function handleLogin(interaction: DiscordInteraction, env: Env): Promise<void> {
@@ -246,4 +333,18 @@ function formatAuthStart(value: Record<string, unknown>): string {
 
 function formatObject(value: unknown): string {
   return `\`\`\`json\n${JSON.stringify(value, null, 2)}\n\`\`\``;
+}
+
+function isRunnerAuthorized(request: Request, env: Env): boolean {
+  return request.headers.get("authorization") === `Bearer ${env.RUNNER_SHARED_SECRET}`;
+}
+
+function parseDmCommand(content: string): { name: string | null; argument: string } {
+  const trimmed = content.trim();
+  const match = trimmed.match(/^[/!](login|status|memory|forget)\b\s*(.*)$/i);
+  if (!match) return { name: null, argument: trimmed };
+  return {
+    name: match[1].toLowerCase(),
+    argument: match[2].trim()
+  };
 }

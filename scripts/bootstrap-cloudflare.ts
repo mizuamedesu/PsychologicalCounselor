@@ -136,6 +136,7 @@ async function updateWranglerConfig(path: string, input: {
     "DISCORD_APPLICATION_ID",
     "DISCORD_PUBLIC_KEY",
     "OWNER_DISCORD_USER_ID",
+    "OWNER_DISCORD_USERNAME",
     "COUNSELOR_LANGUAGE",
     "MEMORY_TIME_ZONE",
     "EMBEDDING_MODEL",
@@ -223,7 +224,7 @@ async function writeDotEnv(path: string, values: Record<string, string>): Promis
 
 function copyEnv(target: Record<string, string>, source: Record<string, string>, keys: string[]): void {
   for (const key of keys) {
-    if (source[key]) target[key] = source[key];
+    if (Object.prototype.hasOwnProperty.call(source, key)) target[key] = source[key];
   }
 }
 

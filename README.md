@@ -33,6 +33,10 @@ Both modes expose the same runner API:
 
 All runner calls require `Authorization: Bearer $RUNNER_SHARED_SECRET`.
 
+For plain Discord DM chat, the on-prem compose stack also runs `discord-bot`.
+It receives DM messages over Discord Gateway and forwards them to the Worker `/dm`
+endpoint, which uses the same D1/Vectorize/Codex memory pipeline as slash commands.
+
 ## Local Mac Runner
 
 Create `.env` from `.env.example`, then:
@@ -149,6 +153,7 @@ Set Discord vars in `wrangler.jsonc` or your deployment environment:
 - `DISCORD_APPLICATION_ID`
 - `DISCORD_PUBLIC_KEY`
 - `OWNER_DISCORD_USER_ID`
+- `OWNER_DISCORD_USERNAME` as a fallback when you have not copied the numeric Discord user ID yet
 
 Deploy:
 

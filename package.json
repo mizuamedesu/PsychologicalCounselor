@@ -4,6 +4,7 @@
   "private": true,
   "type": "module",
   "workspaces": [
+    "bot",
     "runner"
   ],
   "scripts": {
@@ -13,7 +14,7 @@
     "dev:container": "wrangler dev -c wrangler.container.local.jsonc",
     "deploy": "wrangler deploy -c wrangler.local.jsonc",
     "deploy:container": "wrangler deploy -c wrangler.container.local.jsonc",
-    "typecheck": "tsc --noEmit && npm --workspace runner run typecheck",
+    "typecheck": "tsc --noEmit && npm --workspace runner run typecheck && npm --workspace bot run typecheck",
     "commands:register": "tsx scripts/register-commands.ts",
     "db:migrate:local": "wrangler d1 migrations apply psychological-counselor --local -c wrangler.local.jsonc",
     "db:migrate:remote": "wrangler d1 migrations apply psychological-counselor --remote -c wrangler.local.jsonc"

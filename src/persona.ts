@@ -528,20 +528,20 @@ async function getPersonaNodes(env: Env, userId: string, limit: number): Promise
 }
 
 function parsePersonaSeed(seed: string): ParsedSeed {
-  const lines = seed.split(/\n+/).map((line) => line.trim()).filter(Boolean);
+  const segments = seed.split(/[。\n]+/).map((line) => line.trim()).filter(Boolean);
   const name = firstMatch(seed, [
     /(?:名前|name)\s*(?:は|[:：])\s*([^\s、。,\n]{1,32})/i,
     /^([^\s、。,\n]{1,24})[、,]\s*\d{1,3}\s*歳/
   ]);
   const ageText = firstMatch(seed, [/(\d{1,3})\s*歳/]);
   const age = ageText ? Number(ageText) : undefined;
-  const affiliation = headingValue(lines, /(所属|生活|学校|大学|高校|会社|勤務)/)
-    ?? sentenceAround(seed, /(大学|高校|学校|会社|勤務|通う|院生|専門)/);
-  const speechStyle = headingValue(lines, /(話し方|口調|喋り方|しゃべり方)/)
-    ?? sentenceAround(seed, /(話し方|口調|喋り方|しゃべり方|やわらか|砕け|敬語|タメ口)/);
-  const relationship = headingValue(lines, /(距離感|関係|あなた|ユーザー)/)
-    ?? sentenceAround(seed, /(距離感|親しい|友達|恋人|相棒|相談相手|DM相手)/);
-  const traits = lines
+  const affiliation = labeledValue(seed, /(所属|生活)/)
+    ?? extractAffiliation(seed);
+  const speechStyle = labeledValue(seed, /(話し方|口調|喋り方|しゃべり方)/)
+    ?? sentenceWithoutHeading(segments, /(やわらか|砕け|敬語|タメ口)/);
+  const relationship = labeledValue(seed, /(距離感|関係|あなた|ユーザー)/)
+    ?? sentenceWithoutHeading(segments, /(親しい|友達|恋人|相棒|相談相手|DM相手)/);
+  const traits = segments
     .filter((line) => /(性格|雰囲気|気質|好き|苦手)/.test(line))
     .map(stripHeading)
     .filter((line) => line.length >= 2);
@@ -644,18 +644,38 @@ function makeNode(
   };
 }
 
-function headingValue(lines: string[], pattern: RegExp): string | undefined {
-  const line = lines.find((item) => pattern.test(item));
-  return line ? stripHeading(line) : undefined;
-}
-
 function stripHeading(line: string): string {
   return line.replace(/^[^:：]{1,16}[:：]\s*/, "").replace(/^(名前|年齢|所属|生活|話し方|口調|距離感|関係)\s*は?\s*/, "").trim();
 }
 
-function sentenceAround(text: string, pattern: RegExp): string | undefined {
-  const sentences = text.split(/[。\n]/).map((line) => line.trim()).filter(Boolean);
-  return sentences.find((sentence) => pattern.test(sentence));
+function labeledValue(text: string, pattern: RegExp): string | undefined {
+  const segments = text.split(/[。\n]+/).map((line) => line.trim()).filter(Boolean);
+  const segment = segments.find((item) => pattern.test(item));
+  if (!segment) return undefined;
+
+  const match = segment.match(pattern);
+  if (!match) return undefined;
+  const afterLabel = segment.slice((match.index ?? 0) + match[0].length)
+    .replace(/^\s*(は|:|：)\s*/, "")
+    .trim();
+  const value = afterLabel.split(/(?:名前|年齢|所属|生活|学校|大学|高校|会社|勤務|話し方|口調|喋り方|しゃべり方|距離感|関係|あなた|ユーザー)\s*(?:は|[:：])/)[0];
+  return value.trim() || undefined;
+}
+
+function extractAffiliation(text: string): string | undefined {
+  const match = text.match(/([^。\n]*(?:大学|高校|学校|会社|勤務|通う|院生|専門)[^。\n]*)/);
+  if (!match?.[1]) return undefined;
+  return match[1]
+    .replace(/^(?:名前|name)\s*(?:は|[:：])\s*[^\s、。,\n]{1,32}[、,]?\s*/i, "")
+    .replace(/^\d{1,3}\s*歳[、,]?\s*/, "")
+    .replace(/^[、,\s]+/, "")
+    .trim();
+}
+
+function sentenceWithoutHeading(segments: string[], pattern: RegExp): string | undefined {
+  const sentence = segments.find((item) => pattern.test(item));
+  if (!sentence) return undefined;
+  return stripHeading(sentence);
 }
 
 function firstMatch(text: string, patterns: RegExp[]): string | undefined {

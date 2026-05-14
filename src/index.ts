@@ -86,7 +86,7 @@ async function handleDiscordDm(request: Request, env: Env): Promise<Response> {
         memoryStats(env, body.userId)
       ]);
       return jsonResponse({
-        content: [`runner: ${env.RUNNER_BACKEND || "container"}`, formatObject(auth), stats].join("\n\n")
+        content: [`runner: ${env.RUNNER_BACKEND || "container"}`, formatAuthStatus(auth), stats].join("\n\n")
       });
     }
 
@@ -257,7 +257,7 @@ async function handleStatus(interaction: DiscordInteraction, env: Env): Promise<
     await editOriginalInteraction(
       env.DISCORD_APPLICATION_ID,
       interaction.token,
-      [`runner: ${env.RUNNER_BACKEND || "container"}`, formatObject(auth), stats].join("\n\n")
+      [`runner: ${env.RUNNER_BACKEND || "container"}`, formatAuthStatus(auth), stats].join("\n\n")
     );
   } catch (error) {
     console.error(error);
@@ -340,6 +340,22 @@ function formatAuthStart(value: Record<string, unknown>): string {
 
 function formatObject(value: unknown): string {
   return `\`\`\`json\n${JSON.stringify(value, null, 2)}\n\`\`\``;
+}
+
+function formatAuthStatus(value: Record<string, unknown>): string {
+  const authProcess = asRecord(value.authProcess);
+  return formatObject({
+    ok: value.ok,
+    status: value.status,
+    stdout: asString(value.stdout) || undefined,
+    stderr: asString(value.stderr) || undefined,
+    authProcess: authProcess ? {
+      status: authProcess.status,
+      startedAt: authProcess.startedAt,
+      finishedAt: authProcess.finishedAt,
+      error: authProcess.error
+    } : undefined
+  });
 }
 
 function isRunnerAuthorized(request: Request, env: Env): boolean {

@@ -107,6 +107,7 @@ export class CodexService {
     const threadOptions: ThreadOptions = {
       sandboxMode: "read-only",
       workingDirectory: this.workspace,
+      skipGitRepoCheck: true,
       approvalPolicy: "never",
       networkAccessEnabled: false
     };

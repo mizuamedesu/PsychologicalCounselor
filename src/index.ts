@@ -188,11 +188,10 @@ async function handleDiscordDm(request: Request, env: Env): Promise<Response> {
       return jsonResponse({
         content: [
           "決めた。",
-          persona.summary,
-          "",
           "この子として時間を進めていくね。"
         ].join("\n"),
-        botUsername: personaBotUsername(persona.profile)
+        botUsername: personaBotUsername(persona.profile),
+        deleteTriggerMessage: true
       } satisfies DiscordDmResponse);
     }
 
@@ -276,10 +275,9 @@ async function handleDiscordDmIngest(request: Request, env: Env): Promise<Respon
       timingMode: "persona_setup",
       immediate: true,
       botUsername: personaBotUsername(persona.profile),
+      deleteTriggerMessage: true,
       content: [
         "決めた。",
-        persona.summary,
-        "",
         "この子として時間を進めていくね。足りない過去の出来事や癖は、会話と時間経過に合わせて少しずつ増やしていく。"
       ].join("\n")
     } satisfies DmIngestResponse);
@@ -416,8 +414,12 @@ async function handleOrchestrate(request: Request, env: Env): Promise<Response> 
     limit: Math.max(1, Math.min(body.limit ?? 3, 5)),
     force: body.force ?? false
   });
+  const profile = env.OWNER_DISCORD_USER_ID
+    ? await getPersonaProfile(env, env.OWNER_DISCORD_USER_ID)
+    : null;
+  const botUsername = profile?.status === "active" ? personaBotUsername(profile) : undefined;
 
-  return jsonResponse({ states, personaExpansions } satisfies OrchestrateResponse);
+  return jsonResponse({ states, personaExpansions, botUsername } satisfies OrchestrateResponse);
 }
 
 async function handleDiscordInteraction(
@@ -460,6 +462,11 @@ async function handleDiscordInteraction(
 
   if (commandName === "memory") {
     ctx.waitUntil(handleMemorySearch(interaction, env));
+    return deferredMessage(true);
+  }
+
+  if (commandName === "persona") {
+    ctx.waitUntil(handlePersonaInteraction(interaction, env));
     return deferredMessage(true);
   }
 
@@ -689,6 +696,23 @@ async function handleForget(interaction: DiscordInteraction, env: Env): Promise<
   }
 }
 
+async function handlePersonaInteraction(interaction: DiscordInteraction, env: Env): Promise<void> {
+  const userId = interactionUserId(interaction);
+  if (!userId) return;
+
+  try {
+    const result = await handlePersonaCommand(env, userId, personaInteractionArgument(interaction));
+    await editOriginalInteraction(env.DISCORD_APPLICATION_ID, interaction.token, result.content);
+  } catch (error) {
+    console.error(error);
+    await editOriginalInteraction(
+      env.DISCORD_APPLICATION_ID,
+      interaction.token,
+      `persona操作に失敗しました。\n\`${error instanceof Error ? error.message : String(error)}\``
+    );
+  }
+}
+
 async function handlePersonaCommand(
   env: Env,
   userId: string,
@@ -730,7 +754,8 @@ async function handlePersonaCommand(
         personaSetupPrompt()
       ].join("\n"),
       purgeDiscordHistory: true,
-      purgeLimit: 500
+      purgeLimit: 500,
+      deleteTriggerMessage: true
     };
   }
 
@@ -764,12 +789,26 @@ async function handlePersonaCommand(
   return {
     content: [
       "更新した。",
-      persona.summary,
-      "",
       "この人格と世界線で続けるね。"
     ].join("\n"),
-    botUsername: personaBotUsername(persona.profile)
+    botUsername: personaBotUsername(persona.profile),
+    deleteTriggerMessage: true
   };
+}
+
+function personaInteractionArgument(interaction: DiscordInteraction): string {
+  const subcommand = interaction.data?.options?.[0];
+  if (!subcommand) return "status";
+
+  if (subcommand.name === "status") return "status";
+  if (subcommand.name === "set") {
+    return getOption<string>(subcommand.options, "seed")?.trim() ?? "";
+  }
+  if (subcommand.name === "reset") {
+    const name = getOption<string>(subcommand.options, "name")?.trim();
+    return `reset ${name ?? ""}`.trim();
+  }
+  return "status";
 }
 
 async function resetAllUserData(

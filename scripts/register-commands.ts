@@ -51,6 +51,44 @@ const commands = withInstallContext([
     ]
   },
   {
+    name: "persona",
+    description: "ペルソナを確認・設定・リセットする",
+    type: 1,
+    options: [
+      {
+        name: "status",
+        description: "現在のペルソナ状態を見る",
+        type: 1
+      },
+      {
+        name: "set",
+        description: "ペルソナを設定する。既存ペルソナがある場合は先にresetが必要",
+        type: 1,
+        options: [
+          {
+            name: "seed",
+            description: "例: 名前はゆい、21歳、お茶の水女子大に通う。",
+            type: 3,
+            required: true
+          }
+        ]
+      },
+      {
+        name: "reset",
+        description: "全DB状態を消してペルソナを作り直す",
+        type: 1,
+        options: [
+          {
+            name: "name",
+            description: "確認用の現在のBot名",
+            type: 3,
+            required: true
+          }
+        ]
+      }
+    ]
+  },
+  {
     name: "forget",
     description: "記憶を全削除する",
     type: 1,

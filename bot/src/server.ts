@@ -25,6 +25,7 @@ type WorkerDmResponse = {
   botUsername?: string;
   purgeDiscordHistory?: boolean;
   purgeLimit?: number;
+  deleteTriggerMessage?: boolean;
   error?: string;
 };
 
@@ -46,6 +47,7 @@ type DmIngestResponse = {
   content?: string;
   immediate?: boolean;
   botUsername?: string;
+  deleteTriggerMessage?: boolean;
   error?: string;
 };
 
@@ -73,6 +75,7 @@ type OrchestrateResponse = {
     availability_mode: string;
     next_tick_at: number;
   }>;
+  botUsername?: string;
   error?: string;
 };
 
@@ -97,6 +100,11 @@ type DiscordPurgeReport = {
   userDeleted: number;
   botFailed: number;
   userFailed: number;
+};
+
+type DeleteReport = {
+  attempted: boolean;
+  deleted: boolean;
 };
 
 const pendingReplyTimers = new Map<string, ReturnType<typeof setTimeout>>();
@@ -182,8 +190,11 @@ async function handleDirectMessage(message: Message): Promise<void> {
       await applyBotUsername(body.botUsername);
     }
     if (body.content) {
+      const deleteReport = body.deleteTriggerMessage
+        ? await deleteTriggerMessage(message)
+        : null;
       await waitWithTyping(message, body.delayMs ?? 0);
-      await sendChunked(message, body.content);
+      await sendChunked(message, withDeleteReport(body.content, deleteReport));
       return;
     }
     if (body.generation === undefined) return;
@@ -225,10 +236,13 @@ async function handleCommandMessage(message: Message, content: string): Promise<
   if (body.botUsername) {
     await applyBotUsername(body.botUsername);
   }
+  const deleteReport = body.deleteTriggerMessage
+    ? await deleteTriggerMessage(message)
+    : null;
   const purgeReport = body.purgeDiscordHistory
     ? await purgeDiscordDmHistory(message, body.purgeLimit ?? 500)
     : null;
-  await sendChunked(message, withPurgeReport(body.content || "空の応答でした。", purgeReport));
+  await sendChunked(message, withDeleteReport(withPurgeReport(body.content || "空の応答でした。", purgeReport), deleteReport));
 }
 
 function schedulePendingReply(input: {
@@ -359,6 +373,9 @@ async function orchestrateLife(force = false): Promise<void> {
       console.warn("life orchestration failed", body.error ?? response.statusText);
       return;
     }
+    if (body.botUsername) {
+      await applyBotUsername(body.botUsername);
+    }
   } catch (error) {
     console.error("failed to orchestrate life", error);
   }
@@ -418,6 +435,15 @@ async function maintainTypingUntil(channel: SendableChannel, promise: Promise<un
   }
 }
 
+async function deleteTriggerMessage(message: Message): Promise<DeleteReport> {
+  try {
+    await message.delete();
+    return { attempted: true, deleted: true };
+  } catch {
+    return { attempted: true, deleted: false };
+  }
+}
+
 async function purgeDiscordDmHistory(message: Message, limit: number): Promise<DiscordPurgeReport> {
   const report: DiscordPurgeReport = {
     scanned: 0,
@@ -457,6 +483,15 @@ async function purgeDiscordDmHistory(message: Message, limit: number): Promise<D
   }
 
   return report;
+}
+
+function withDeleteReport(content: string, report: DeleteReport | null): string {
+  if (!report || report.deleted) return content;
+  return [
+    content,
+    "",
+    "入力メッセージの削除も試しましたが、Discordに拒否されました。今後のペルソナ設定は `/persona set` を使うと通常DM履歴に本文を残さず設定できます。"
+  ].join("\n");
 }
 
 function withPurgeReport(content: string, report: DiscordPurgeReport | null): string {

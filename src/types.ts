@@ -42,6 +42,7 @@ export interface DiscordDmResponse {
   botUsername?: string;
   purgeDiscordHistory?: boolean;
   purgeLimit?: number;
+  deleteTriggerMessage?: boolean;
 }
 
 export interface DmIngestResponse {
@@ -53,6 +54,7 @@ export interface DmIngestResponse {
   content?: string;
   immediate?: boolean;
   botUsername?: string;
+  deleteTriggerMessage?: boolean;
 }
 
 export interface DmRespondRequest {
@@ -91,6 +93,7 @@ export interface OrchestrateRequest {
 export interface OrchestrateResponse {
   states: BotLifeState[];
   personaExpansions?: PersonaExpansion[];
+  botUsername?: string;
 }
 
 export interface ProactiveMessage {

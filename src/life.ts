@@ -90,8 +90,22 @@ function chooseLifeProfile(
     state.pending_reply_after > now &&
     state.pending_reply_after - now <= 3 * 60_000
   );
+  const presenceCheck = state?.timing_reason?.includes("what the bot is doing now") ?? false;
   const active = Boolean(state?.active_until && state.active_until > now);
   const pendingLater = Boolean(state?.pending_reply_after && state.pending_reply_after > now);
+
+  if (presenceCheck) {
+    return withJitter({
+      activity: "今の状態を言葉にしようとしている",
+      detail: "いま何をしているか聞かれたので、内側の状態を自然なDMの言い方に直している",
+      availability: "present",
+      attention: 0.94,
+      energy: Math.max(0.55, previous?.energy_score ?? 0.7),
+      mood: "attentive",
+      durationMinMs: 6 * 60_000,
+      durationMaxMs: 16 * 60_000
+    });
+  }
 
   if (pendingSoon || active) {
     return withJitter({

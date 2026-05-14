@@ -28,6 +28,7 @@ const CADENCE = {
 type TimingMode =
   | "crisis"
   | "distress"
+  | "presence_check"
   | "live_thread"
   | "followup"
   | "closing"
@@ -429,6 +430,9 @@ function classifyTimingContext(input: {
   if (/(鬱|うつ|つらい|辛い|しんどい|苦しい|泣き|不安|パニック|限界|こわい|怖い)/.test(text)) {
     return { mode: "distress", reason: "distressed topic gets quicker attention" };
   }
+  if (/(今|いま|なう).*(何|なに|なーに).*(して|やって|しとる)|何してる|なにしてる|何やってる|なにやってる|どこいる|どこにいる|起きてる|暇してる|ひましてる|今暇|いま暇/.test(text)) {
+    return { mode: "presence_check", reason: "user asked what the bot is doing now" };
+  }
   if (input.pendingCount >= 2) {
     return { mode: "followup", reason: "user added messages before the reply" };
   }
@@ -475,7 +479,7 @@ function choosePresence(
     : hour >= 9 && hour <= 17 ? 0.55
       : hour >= 20 || hour <= 0 ? 0.82
         : 0.68;
-  const baseAttention = mode === "live_thread" || mode === "followup" ? 0.9
+  const baseAttention = mode === "live_thread" || mode === "followup" || mode === "presence_check" ? 0.9
     : mode === "crisis" || mode === "distress" ? 0.95
       : mode === "closing" ? 0.35
         : 0.55;
@@ -515,7 +519,7 @@ function chooseHumanDelay(input: {
     ? 1 + Math.min(1.4, (input.recentTurnCount - 5) * 0.18)
     : 1;
   const cadenceMultiplier = input.cadence === "fast" ? 0.55 : input.cadence === "slow" ? 1.8 : 1;
-  const multiplier = (input.mode === "crisis" || input.mode === "distress" || input.mode === "live_thread")
+  const multiplier = (input.mode === "crisis" || input.mode === "distress" || input.mode === "live_thread" || input.mode === "presence_check")
     ? cadenceMultiplier
     : availabilityMultiplier * socialFatigueMultiplier * cadenceMultiplier;
 
@@ -525,6 +529,7 @@ function chooseHumanDelay(input: {
 function delayRange(mode: TimingMode, cadence: ConversationState["reply_cadence"]): { min: number; max: number } {
   if (mode === "crisis") return { min: 400, max: 2_000 };
   if (mode === "distress") return { min: 3_000, max: 18_000 };
+  if (mode === "presence_check") return { min: 1_000, max: 7_000 };
   if (mode === "live_thread") return { min: 1_500, max: cadence === "slow" ? 35_000 : 14_000 };
   if (mode === "followup") return { min: 1_000, max: 10_000 };
   if (mode === "closing") return { min: 8 * 60_000, max: 45 * 60_000 };
@@ -535,6 +540,7 @@ function delayRange(mode: TimingMode, cadence: ConversationState["reply_cadence"
 
 function chooseActiveUntil(mode: TimingMode, now: number): number | null {
   if (mode === "crisis" || mode === "distress") return now + randomInt(20 * 60_000, 60 * 60_000);
+  if (mode === "presence_check") return now + randomInt(8 * 60_000, 20 * 60_000);
   if (mode === "live_thread" || mode === "followup") return now + randomInt(8 * 60_000, 25 * 60_000);
   if (mode === "closing") return now + randomInt(30_000, 3 * 60_000);
   if (mode === "ambient") return now + randomInt(4 * 60_000, 12 * 60_000);

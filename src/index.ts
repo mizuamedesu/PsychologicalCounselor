@@ -17,11 +17,27 @@ import {
   forgetAllMemory,
   memoryStats,
   searchMemoryForDisplay,
+  storeAssistantMemory,
   storeConversationMemory
 } from "./memory";
-import { buildCounselorPrompt } from "./prompt";
+import { buildCounselorPrompt, buildProactivePrompt } from "./prompt";
 import { callRunner, runCodexChat } from "./runner";
-import type { DiscordDmRequest, DiscordInteraction, Env } from "./types";
+import {
+  formatTimelineContext,
+  getDueProactiveStates,
+  markAssistantReplied,
+  markProactiveSent,
+  prepareIncomingTimeline,
+  proactiveDelayMs
+} from "./timeline";
+import type {
+  DiscordDmRequest,
+  DiscordDmResponse,
+  DiscordInteraction,
+  Env,
+  ProactiveRequest,
+  ProactiveResponse
+} from "./types";
 
 export class CodexRunnerContainer extends Container {
   defaultPort = 8789;
@@ -48,6 +64,10 @@ export default {
 
     if (request.method === "POST" && url.pathname === "/dm") {
       return handleDiscordDm(request, env);
+    }
+
+    if (request.method === "POST" && url.pathname === "/proactive") {
+      return handleProactive(request, env);
     }
 
     return new Response("Not found", { status: 404 });
@@ -108,15 +128,46 @@ async function handleDiscordDm(request: Request, env: Env): Promise<Response> {
       userId: body.userId,
       channelId: body.channelId,
       interactionId: body.messageId,
-      message: content
+      message: content,
+      useTimeline: true
     });
-    return jsonResponse({ content: reply });
+    return jsonResponse({ content: reply.text, delayMs: reply.delayMs } satisfies DiscordDmResponse);
   } catch (error) {
     console.error(error);
     return jsonResponse({
       error: error instanceof Error ? error.message : String(error)
     }, { status: 500 });
   }
+}
+
+async function handleProactive(request: Request, env: Env): Promise<Response> {
+  if (!isRunnerAuthorized(request, env)) {
+    return jsonResponse({ error: "unauthorized" }, { status: 401 });
+  }
+
+  const body: ProactiveRequest = await request.json<ProactiveRequest>().catch(() => ({}));
+  const limit = Math.max(1, Math.min(body.limit ?? 1, 3));
+  const now = Date.now();
+  const states = await getDueProactiveStates(env, limit, now);
+  const messages = [];
+
+  for (const state of states) {
+    if (!state.channel_id) continue;
+    try {
+      const content = await generateProactiveMessage(env, state, now);
+      messages.push({
+        userId: state.discord_user_id,
+        channelId: state.channel_id,
+        content,
+        delayMs: proactiveDelayMs()
+      });
+    } catch (error) {
+      console.error("proactive generation failed", error);
+      await markProactiveSent({ env, state, now });
+    }
+  }
+
+  return jsonResponse({ messages } satisfies ProactiveResponse);
 }
 
 async function handleDiscordInteraction(
@@ -180,14 +231,15 @@ async function handleChat(interaction: DiscordInteraction, env: Env): Promise<vo
   }
 
   try {
-    const text = await generateCounselorReply({
+    const reply = await generateCounselorReply({
       env,
       userId,
       channelId: interaction.channel_id,
       interactionId: interaction.id,
-      message
+      message,
+      useTimeline: false
     });
-    await editOriginalInteraction(env.DISCORD_APPLICATION_ID, interaction.token, text);
+    await editOriginalInteraction(env.DISCORD_APPLICATION_ID, interaction.token, reply.text);
   } catch (error) {
     console.error(error);
     await editOriginalInteraction(
@@ -204,11 +256,21 @@ async function generateCounselorReply(input: {
   channelId?: string;
   interactionId?: string;
   message: string;
-}): Promise<string> {
+  useTimeline?: boolean;
+}): Promise<{ text: string; delayMs?: number }> {
+  const timeline = input.useTimeline
+    ? await prepareIncomingTimeline({
+      env: input.env,
+      userId: input.userId,
+      channelId: input.channelId,
+      message: input.message
+    })
+    : undefined;
   const memory = await buildMemoryContext(input.env, input.userId, input.message);
   const prompt = buildCounselorPrompt({
     userMessage: input.message,
     memory,
+    timeline: timeline?.formatted,
     language: input.env.COUNSELOR_LANGUAGE || "ja",
     nowIso: new Date().toISOString()
   });
@@ -227,6 +289,44 @@ async function generateCounselorReply(input: {
     userMessage: input.message,
     assistantMessage: text
   });
+  if (input.useTimeline) {
+    await markAssistantReplied({
+      env: input.env,
+      userId: input.userId,
+      channelId: input.channelId
+    });
+  }
+  return { text, delayMs: timeline?.replyDelayMs };
+}
+
+async function generateProactiveMessage(
+  env: Env,
+  state: Awaited<ReturnType<typeof getDueProactiveStates>>[number],
+  now: number
+): Promise<string> {
+  const memory = await buildMemoryContext(env, state.discord_user_id, "最近の気分、生活、会話の流れ、気軽な雑談");
+  const prompt = buildProactivePrompt({
+    memory,
+    timeline: formatTimelineContext(state, now),
+    language: env.COUNSELOR_LANGUAGE || "ja",
+    nowIso: new Date(now).toISOString()
+  });
+
+  const response = await runCodexChat(env, {
+    prompt,
+    model: env.CODEX_MODEL || undefined
+  });
+
+  const text = response.text.trim() || "ふと思い出した。今どんな感じ？";
+  await storeAssistantMemory({
+    env,
+    userId: state.discord_user_id,
+    channelId: state.channel_id ?? undefined,
+    content: text,
+    eventType: "proactive_message",
+    now
+  });
+  await markProactiveSent({ env, state, now });
   return text;
 }
 

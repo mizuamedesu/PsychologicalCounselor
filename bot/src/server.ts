@@ -9,7 +9,26 @@ import {
 
 const token = requiredEnv("DISCORD_BOT_TOKEN");
 const workerDmUrl = requiredEnv("WORKER_DM_URL");
+const workerProactiveUrl = process.env.WORKER_PROACTIVE_URL || new URL("/proactive", workerDmUrl).toString();
 const runnerSharedSecret = requiredEnv("RUNNER_SHARED_SECRET");
+const proactivePollIntervalMs = numberEnv("PROACTIVE_POLL_INTERVAL_MS", 5 * 60_000);
+
+type WorkerDmResponse = {
+  content?: string;
+  delayMs?: number;
+  error?: string;
+};
+
+type ProactiveResponse = {
+  messages?: Array<{
+    channelId: string;
+    content: string;
+    delayMs?: number;
+  }>;
+  error?: string;
+};
+
+const channelQueues = new Map<string, Promise<void>>();
 
 const client = new Client({
   intents: [
@@ -22,13 +41,19 @@ const client = new Client({
 
 client.once(Events.ClientReady, () => {
   console.log(`discord dm bot ready as ${client.user?.tag ?? "unknown"}`);
+  setInterval(() => {
+    void pollProactiveMessages();
+  }, proactivePollIntervalMs);
+  setTimeout(() => {
+    void pollProactiveMessages();
+  }, Math.min(proactivePollIntervalMs, 60_000));
 });
 
 client.on("messageCreate", async (message) => {
   if (message.author.bot) return;
   if (message.channel.type !== ChannelType.DM) return;
 
-  await handleDirectMessage(message);
+  queueDirectMessage(message);
 });
 
 client.on("error", (error) => console.error("discord client error", error));
@@ -36,14 +61,24 @@ client.on("warn", (warning) => console.warn("discord client warning", warning));
 
 await client.login(token);
 
+function queueDirectMessage(message: Message): void {
+  const channelId = message.channel.id;
+  const previous = channelQueues.get(channelId) ?? Promise.resolve();
+  const next = previous
+    .catch(() => undefined)
+    .then(() => handleDirectMessage(message))
+    .finally(() => {
+      if (channelQueues.get(channelId) === next) channelQueues.delete(channelId);
+    });
+
+  channelQueues.set(channelId, next);
+}
+
 async function handleDirectMessage(message: Message): Promise<void> {
   const content = message.content.trim();
   if (!content) return;
 
   try {
-    if ("sendTyping" in message.channel) {
-      await message.channel.sendTyping();
-    }
     const response = await fetch(workerDmUrl, {
       method: "POST",
       headers: {
@@ -60,16 +95,45 @@ async function handleDirectMessage(message: Message): Promise<void> {
       })
     });
 
-    const body = await response.json() as { content?: string; error?: string };
+    const body = await response.json() as WorkerDmResponse;
     if (!response.ok) {
       await message.reply(`処理に失敗しました: ${body.error ?? response.statusText}`);
       return;
     }
 
+    await waitWithTyping(message, body.delayMs ?? 0);
     await sendChunked(message, body.content || "空の応答でした。");
   } catch (error) {
     console.error("failed to handle direct message", error);
     await message.reply(`処理中に失敗しました: ${error instanceof Error ? error.message : String(error)}`);
+  }
+}
+
+async function pollProactiveMessages(): Promise<void> {
+  try {
+    const response = await fetch(workerProactiveUrl, {
+      method: "POST",
+      headers: {
+        "authorization": `Bearer ${runnerSharedSecret}`,
+        "content-type": "application/json"
+      },
+      body: JSON.stringify({ limit: 1 })
+    });
+
+    const body = await response.json() as ProactiveResponse;
+    if (!response.ok) {
+      console.warn("proactive poll failed", body.error ?? response.statusText);
+      return;
+    }
+
+    for (const item of body.messages ?? []) {
+      const channel = await client.channels.fetch(item.channelId);
+      if (!channel || !("send" in channel)) continue;
+      await waitWithChannelTyping(channel, item.delayMs ?? 0);
+      await channel.send(item.content);
+    }
+  } catch (error) {
+    console.error("failed to poll proactive messages", error);
   }
 }
 
@@ -90,8 +154,43 @@ function chunkDiscord(content: string): string[] {
   return chunks.length ? chunks : [" "];
 }
 
+async function waitWithTyping(message: Message, delayMs: number): Promise<void> {
+  await waitWithChannelTyping(message.channel, delayMs);
+}
+
+async function waitWithChannelTyping(
+  channel: Message["channel"],
+  delayMs: number
+): Promise<void> {
+  const boundedDelay = Math.max(0, Math.min(delayMs, 15 * 60_000));
+  const typingLeadMs = Math.min(18_000, Math.max(2_000, Math.floor(boundedDelay / 3)));
+  const silentWait = Math.max(0, boundedDelay - typingLeadMs);
+
+  if (silentWait > 0) await sleep(silentWait);
+  if ("sendTyping" in channel) {
+    const endAt = Date.now() + typingLeadMs;
+    do {
+      await channel.sendTyping();
+      const remaining = endAt - Date.now();
+      if (remaining <= 0) break;
+      await sleep(Math.min(8_000, remaining));
+    } while (Date.now() < endAt);
+  } else if (typingLeadMs > 0) {
+    await sleep(typingLeadMs);
+  }
+}
+
 function requiredEnv(name: string): string {
   const value = process.env[name];
   if (!value) throw new Error(`${name} is required`);
   return value;
+}
+
+function numberEnv(name: string, fallback: number): number {
+  const value = Number(process.env[name]);
+  return Number.isFinite(value) && value > 0 ? value : fallback;
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }

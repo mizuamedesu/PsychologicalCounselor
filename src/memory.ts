@@ -107,6 +107,55 @@ export async function storeConversationMemory(input: {
   await purgeOldMemory(input.env, input.userId);
 }
 
+export async function storeAssistantMemory(input: {
+  env: Env;
+  userId: string;
+  channelId?: string;
+  content: string;
+  eventType: string;
+  now?: number;
+}): Promise<void> {
+  const now = input.now ?? Date.now();
+  const date = dateParts(now, input.env.MEMORY_TIME_ZONE);
+  const memoryId = makeMemoryId(input.userId);
+
+  await input.env.DB.batch([
+    input.env.DB.prepare(
+      `INSERT INTO memory_items
+        (id, conversation_id, discord_user_id, role, content, created_at, created_date, date_path, importance, metadata_json)
+       VALUES (?, NULL, ?, 'assistant', ?, ?, ?, ?, 1, ?)`
+    ).bind(
+      memoryId,
+      input.userId,
+      input.content,
+      now,
+      date.createdDate,
+      date.datePath,
+      JSON.stringify({ channelId: input.channelId ?? null, eventType: input.eventType })
+    ),
+    input.env.DB.prepare(
+      `INSERT INTO memory_events (id, discord_user_id, event_type, detail_json, created_at)
+       VALUES (?, ?, ?, ?, ?)`
+    ).bind(
+      crypto.randomUUID(),
+      input.userId,
+      input.eventType,
+      JSON.stringify({ channelId: input.channelId ?? null, memoryId }),
+      now
+    )
+  ]);
+
+  await upsertMemoryVectors(input.env, input.userId, [{
+    id: memoryId,
+    text: input.content,
+    role: "assistant",
+    createdAt: now,
+    datePath: date.datePath
+  }]);
+
+  await purgeOldMemory(input.env, input.userId);
+}
+
 export async function memoryStats(env: Env, userId: string): Promise<string> {
   const row = await env.DB.prepare(
     `SELECT COUNT(*) AS count, MIN(created_at) AS oldest, MAX(created_at) AS newest

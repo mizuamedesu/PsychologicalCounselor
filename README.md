@@ -33,9 +33,20 @@ Both modes expose the same runner API:
 
 All runner calls require `Authorization: Bearer $RUNNER_SHARED_SECRET`.
 
+Worker endpoints used by the Discord Gateway bot:
+
+- `POST /dm` receives a DM and returns `{ content, delayMs }`.
+- `POST /proactive` returns due casual check-ins for the bot to send.
+
+Both endpoints require `Authorization: Bearer $RUNNER_SHARED_SECRET`.
+
 For plain Discord DM chat, the on-prem compose stack also runs `discord-bot`.
 It receives DM messages over Discord Gateway and forwards them to the Worker `/dm`
 endpoint, which uses the same D1/Vectorize/Codex memory pipeline as slash commands.
+The Worker also stores conversation timing state in D1, returns a fuzzy `delayMs`
+for human-ish replies, and exposes `/proactive` so the on-prem bot can send
+occasional low-pressure check-ins without putting the Discord bot token in
+Cloudflare.
 
 ## Local Mac Runner
 
@@ -54,6 +65,16 @@ HOST_CODEX_HOME=/Users/mizuame/.codex
 ```
 
 If you leave it unset, Docker uses local `./.codex-state`, which is ignored by Git.
+
+The on-prem `discord-bot` service also supports:
+
+```bash
+WORKER_PROACTIVE_URL=https://psychological-counselor.example.workers.dev/proactive
+PROACTIVE_POLL_INTERVAL_MS=300000
+```
+
+Users can steer timing naturally in chat. Phrases like "もっと返信返して" move the
+cadence toward fast replies, while "ゆっくりでいい" gives the bot more space.
 
 Expose it with a named tunnel:
 

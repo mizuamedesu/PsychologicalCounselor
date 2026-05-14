@@ -36,6 +36,49 @@ export interface DiscordDmRequest {
   content: string;
 }
 
+export interface DiscordDmResponse {
+  content: string;
+  delayMs?: number;
+}
+
+export interface ProactiveRequest {
+  limit?: number;
+}
+
+export interface ProactiveMessage {
+  userId: string;
+  channelId: string;
+  content: string;
+  delayMs?: number;
+}
+
+export interface ProactiveResponse {
+  messages: ProactiveMessage[];
+}
+
+export interface ConversationState {
+  discord_user_id: string;
+  channel_id: string | null;
+  reply_cadence: "fast" | "normal" | "slow";
+  reply_delay_min_ms: number;
+  reply_delay_max_ms: number;
+  proactive_enabled: number;
+  proactive_interval_min_ms: number;
+  proactive_interval_max_ms: number;
+  last_user_message_at: number | null;
+  last_assistant_message_at: number | null;
+  next_proactive_at: number | null;
+  last_proactive_at: number | null;
+  cadence_reason: string | null;
+  updated_at: number;
+}
+
+export interface TimelineContext {
+  formatted: string;
+  cadence: ConversationState["reply_cadence"];
+  replyDelayMs: number;
+}
+
 export interface DiscordInteraction {
   id: string;
   token: string;

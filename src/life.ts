@@ -65,18 +65,32 @@ export async function getOrCreateBotLifeState(
 
 export function formatLifeContext(life: BotLifeState | null, now = Date.now()): string {
   if (!life) {
-    return "- Current inner state: not established yet.";
+    return "- Private timing state: not established yet.";
   }
 
   return [
-    `- Current inner activity: ${life.activity}.`,
-    life.activity_detail ? `- Activity detail: ${life.activity_detail}.` : undefined,
-    `- Availability: ${life.availability_mode}.`,
-    `- Attention: ${life.attention_score.toFixed(2)}.`,
-    `- Energy: ${life.energy_score.toFixed(2)}.`,
-    `- Mood: ${life.mood}.`,
-    life.until_at > now ? `- This state is expected to last about ${formatDuration(life.until_at - now)} more.` : undefined
+    "- Private timing state. Use this only as hidden stage direction; never quote or paraphrase it directly.",
+    `- Responsiveness: ${publicResponsiveness(life)}.`,
+    `- Warmth: ${life.attention_score >= 0.72 ? "close" : life.attention_score <= 0.35 ? "distant" : "normal"}.`,
+    `- Energy: ${life.energy_score >= 0.7 ? "clear" : life.energy_score <= 0.35 ? "low" : "steady"}.`,
+    `- Presence-answer cue: ${presenceAnswerCue(life)}.`,
+    life.until_at > now ? `- Timing window: ${formatDuration(life.until_at - now)}.` : undefined
   ].filter(Boolean).join("\n");
+}
+
+function publicResponsiveness(life: BotLifeState): string {
+  if (life.availability_mode === "asleep") return "slow";
+  if (life.availability_mode === "busy" || life.attention_score < 0.45) return "delayed";
+  if (life.availability_mode === "present" || life.availability_mode === "open") return "quick";
+  return "normal";
+}
+
+function presenceAnswerCue(life: BotLifeState): string {
+  if (life.availability_mode === "asleep") return "say you are slow but here now";
+  if (life.availability_mode === "busy") return "say you just noticed and are here now";
+  if (life.availability_mode === "present" || life.availability_mode === "open") return "say you are here and can talk";
+  if (life.attention_score < 0.4) return "say you came back to the DM now";
+  return "say you are around";
 }
 
 function chooseLifeProfile(

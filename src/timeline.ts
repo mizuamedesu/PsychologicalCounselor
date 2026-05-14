@@ -208,7 +208,7 @@ export async function buildPendingReplyContext(input: {
     timeline: [
       formatTimelineContext(state, now),
       "",
-      "Current inner life:",
+      "Private timing state:",
       formatLifeContext(life, now)
     ].join("\n"),
     state
@@ -315,7 +315,7 @@ export async function prepareIncomingTimeline(input: {
     formatted: [
       formatTimelineContext(next, now, delay),
       "",
-      "Current inner life:",
+      "Private timing state:",
       formatLifeContext(life, now)
     ].join("\n")
   };

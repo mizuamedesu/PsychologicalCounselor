@@ -578,7 +578,7 @@ async function generateProactiveMessage(
     timeline: [
       formatTimelineContext(state, now),
       "",
-      "Current inner life:",
+      "Private timing state:",
       formatLifeContext(life, now)
     ].join("\n"),
     language: env.COUNSELOR_LANGUAGE || "ja",

@@ -56,10 +56,10 @@ messages. If the user sends follow-ups before the reply time, the old timer is
 replaced and the eventual response is generated from the whole pending burst.
 The timing planner considers live conversation momentum, winding-down phrases,
 distress, follow-ups, recent-turn fatigue, and a simulated availability state.
-Separately, the life orchestrator keeps a current activity such as "会話に意識を
-寄せている", "返信を少し寝かせている", or "別の作業に意識が寄っている".
-That state changes over real time and is injected into response prompts so the
-bot can answer "今なにしてるの" consistently.
+Separately, the life orchestrator keeps a private timing state such as
+responsiveness, warmth, and energy. That state changes over real time and is
+injected as hidden stage direction, so the bot can answer "今なにしてるの"
+consistently without leaking internal labels into ordinary replies.
 
 After `/login`, the bot creates a persona profile if one does not exist yet and
 asks for a short seed, for example:

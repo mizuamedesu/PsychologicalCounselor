@@ -1,6 +1,7 @@
 import {
   ChannelType,
   Client,
+  Events,
   GatewayIntentBits,
   Partials,
   type Message
@@ -19,7 +20,7 @@ const client = new Client({
   ]
 });
 
-client.once("ready", () => {
+client.once(Events.ClientReady, () => {
   console.log(`discord dm bot ready as ${client.user?.tag ?? "unknown"}`);
 });
 

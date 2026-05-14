@@ -162,13 +162,22 @@ Deploy with Cloudflare Containers instead:
 npm run deploy:container
 ```
 
-Register commands:
+Register commands for DM / user-install mode:
 
 ```bash
-DISCORD_BOT_TOKEN=... DISCORD_APPLICATION_ID=... DISCORD_GUILD_ID=... npm run commands:register
+npm run commands:register
 ```
 
+Leave `DISCORD_GUILD_ID` empty to register global commands with `USER_INSTALL` and DM contexts.
+
 Use the Worker URL plus `/discord` as the Discord Interactions Endpoint URL.
+
+Discord Developer Portal settings for DM-only use:
+
+- Installation: enable User Install.
+- Default Install Settings for User Install: include `applications.commands`.
+- Bot: create a bot user and keep Public Bot off for private use.
+- Install Link: use Discord Provided Link or an OAuth2 link for user install.
 
 ## Notes
 

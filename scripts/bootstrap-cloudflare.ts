@@ -47,8 +47,8 @@ if (useContainer) {
   if (env.AWS_SECRET_ACCESS_KEY) await putSecret("AWS_SECRET_ACCESS_KEY", env.AWS_SECRET_ACCESS_KEY, containerConfigPath);
 }
 
-await run("npx", ["wrangler", "d1", "migrations", "apply", d1Name, "--remote"]);
-await run("npx", ["wrangler", "deploy", ...(useContainer ? ["-c", containerConfigPath] : [])]);
+await run("npx", ["wrangler", "d1", "migrations", "apply", d1Name, "--remote", "-c", rootConfigPath]);
+await run("npx", ["wrangler", "deploy", "-c", useContainer ? containerConfigPath : rootConfigPath]);
 
 console.log("Bootstrap and deploy complete.");
 

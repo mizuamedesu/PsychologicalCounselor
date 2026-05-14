@@ -13,9 +13,11 @@ const workerDmIngestUrl = process.env.WORKER_DM_INGEST_URL || new URL("/dm/inges
 const workerDmRespondUrl = process.env.WORKER_DM_RESPOND_URL || new URL("/dm/respond", workerDmUrl).toString();
 const workerDmDueUrl = process.env.WORKER_DM_DUE_URL || new URL("/dm/due", workerDmUrl).toString();
 const workerProactiveUrl = process.env.WORKER_PROACTIVE_URL || new URL("/proactive", workerDmUrl).toString();
+const workerOrchestrateUrl = process.env.WORKER_ORCHESTRATE_URL || new URL("/orchestrate", workerDmUrl).toString();
 const runnerSharedSecret = requiredEnv("RUNNER_SHARED_SECRET");
 const proactivePollIntervalMs = numberEnv("PROACTIVE_POLL_INTERVAL_MS", 5 * 60_000);
 const dueReplyPollIntervalMs = numberEnv("DUE_REPLY_POLL_INTERVAL_MS", 30_000);
+const lifeOrchestrationIntervalMs = numberEnv("LIFE_ORCHESTRATION_INTERVAL_MS", 5 * 60_000);
 
 type WorkerDmResponse = {
   content?: string;
@@ -58,6 +60,16 @@ type DueRepliesResponse = {
   error?: string;
 };
 
+type OrchestrateResponse = {
+  states?: Array<{
+    discord_user_id: string;
+    activity: string;
+    availability_mode: string;
+    next_tick_at: number;
+  }>;
+  error?: string;
+};
+
 type SendableChannel = {
   send(content: string): Promise<unknown>;
   sendTyping?: () => Promise<void>;
@@ -83,12 +95,18 @@ client.once(Events.ClientReady, () => {
   setInterval(() => {
     void pollDueReplies();
   }, dueReplyPollIntervalMs);
+  setInterval(() => {
+    void orchestrateLife();
+  }, lifeOrchestrationIntervalMs);
   setTimeout(() => {
     void pollProactiveMessages();
   }, Math.min(proactivePollIntervalMs, 60_000));
   setTimeout(() => {
     void pollDueReplies();
   }, Math.min(dueReplyPollIntervalMs, 20_000));
+  setTimeout(() => {
+    void orchestrateLife(true);
+  }, 5_000);
 });
 
 client.on("messageCreate", async (message) => {
@@ -283,6 +301,27 @@ async function pollProactiveMessages(): Promise<void> {
     }
   } catch (error) {
     console.error("failed to poll proactive messages", error);
+  }
+}
+
+async function orchestrateLife(force = false): Promise<void> {
+  try {
+    const response = await fetch(workerOrchestrateUrl, {
+      method: "POST",
+      headers: {
+        "authorization": `Bearer ${runnerSharedSecret}`,
+        "content-type": "application/json"
+      },
+      body: JSON.stringify({ limit: 3, force })
+    });
+
+    const body = await response.json() as OrchestrateResponse;
+    if (!response.ok) {
+      console.warn("life orchestration failed", body.error ?? response.statusText);
+      return;
+    }
+  } catch (error) {
+    console.error("failed to orchestrate life", error);
   }
 }
 

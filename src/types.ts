@@ -77,6 +77,15 @@ export interface ProactiveRequest {
   limit?: number;
 }
 
+export interface OrchestrateRequest {
+  limit?: number;
+  force?: boolean;
+}
+
+export interface OrchestrateResponse {
+  states: BotLifeState[];
+}
+
 export interface ProactiveMessage {
   userId: string;
   channelId: string;
@@ -116,6 +125,21 @@ export interface TimelineContext {
   formatted: string;
   cadence: ConversationState["reply_cadence"];
   replyDelayMs: number;
+}
+
+export interface BotLifeState {
+  discord_user_id: string;
+  activity: string;
+  activity_detail: string;
+  availability_mode: string;
+  attention_score: number;
+  energy_score: number;
+  mood: string;
+  started_at: number;
+  until_at: number;
+  last_tick_at: number;
+  next_tick_at: number;
+  updated_at: number;
 }
 
 export interface DiscordInteraction {

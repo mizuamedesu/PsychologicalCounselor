@@ -40,6 +40,7 @@ Worker endpoints used by the Discord Gateway bot:
 - `POST /dm/respond` generates a reply from all pending DMs in that channel.
 - `POST /dm/due` returns pending replies whose planned time has arrived.
 - `POST /proactive` returns due casual check-ins for the bot to send.
+- `POST /orchestrate` advances the bot's current inner activity and availability.
 
 Both endpoints require `Authorization: Bearer $RUNNER_SHARED_SECRET`.
 
@@ -55,6 +56,10 @@ messages. If the user sends follow-ups before the reply time, the old timer is
 replaced and the eventual response is generated from the whole pending burst.
 The timing planner considers live conversation momentum, winding-down phrases,
 distress, follow-ups, recent-turn fatigue, and a simulated availability state.
+Separately, the life orchestrator keeps a current activity such as "会話に意識を
+寄せている", "返信を少し寝かせている", or "別の作業に意識が寄っている".
+That state changes over real time and is injected into response prompts so the
+bot can answer "今なにしてるの" consistently.
 
 ## Local Mac Runner
 
@@ -78,8 +83,10 @@ The on-prem `discord-bot` service also supports:
 
 ```bash
 WORKER_PROACTIVE_URL=https://psychological-counselor.example.workers.dev/proactive
+WORKER_ORCHESTRATE_URL=https://psychological-counselor.example.workers.dev/orchestrate
 PROACTIVE_POLL_INTERVAL_MS=300000
 DUE_REPLY_POLL_INTERVAL_MS=30000
+LIFE_ORCHESTRATION_INTERVAL_MS=300000
 ```
 
 Users can steer timing naturally in chat. Phrases like "もっと返信返して" move the

@@ -36,8 +36,10 @@ services:
       WORKER_DM_RESPOND_URL: ${WORKER_DM_RESPOND_URL:-https://psychological-counselor.fasutotesuto.workers.dev/dm/respond}
       WORKER_DM_DUE_URL: ${WORKER_DM_DUE_URL:-https://psychological-counselor.fasutotesuto.workers.dev/dm/due}
       WORKER_PROACTIVE_URL: ${WORKER_PROACTIVE_URL:-https://psychological-counselor.fasutotesuto.workers.dev/proactive}
+      WORKER_ORCHESTRATE_URL: ${WORKER_ORCHESTRATE_URL:-https://psychological-counselor.fasutotesuto.workers.dev/orchestrate}
       PROACTIVE_POLL_INTERVAL_MS: ${PROACTIVE_POLL_INTERVAL_MS:-300000}
       DUE_REPLY_POLL_INTERVAL_MS: ${DUE_REPLY_POLL_INTERVAL_MS:-30000}
+      LIFE_ORCHESTRATION_INTERVAL_MS: ${LIFE_ORCHESTRATION_INTERVAL_MS:-300000}
       RUNNER_SHARED_SECRET: ${RUNNER_SHARED_SECRET}
 
 volumes:

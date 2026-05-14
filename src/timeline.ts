@@ -1,4 +1,5 @@
-import type { ConversationState, DueReply, Env, TimelineContext } from "./types";
+import { formatLifeContext, getOrCreateBotLifeState } from "./life";
+import type { BotLifeState, ConversationState, DueReply, Env, TimelineContext } from "./types";
 
 const CADENCE = {
   fast: {
@@ -75,6 +76,7 @@ export async function ingestIncomingMessage(input: {
 
   const pendingCount = await countPendingMessages(input.env, input.userId, input.channelId);
   const recentTurnCount = await countRecentTurns(input.env, input.userId, now - 20 * 60_000);
+  const life = await getOrCreateBotLifeState(input.env, input.userId, previous, now);
   const cadence = chooseCadence(input.message, previous?.reply_cadence ?? "normal");
   const context = classifyTimingContext({
     message: input.message,
@@ -83,7 +85,7 @@ export async function ingestIncomingMessage(input: {
     recentTurnCount,
     now
   });
-  const presence = choosePresence(previous, context.mode, now);
+  const presence = choosePresence(previous, life, context.mode, now);
   const delayMs = chooseHumanDelay({
     message: input.message,
     cadence: cadence.value,
@@ -196,11 +198,18 @@ export async function buildPendingReplyContext(input: {
   const messages = rows.results;
   if (messages.length === 0) return emptyPending("no pending messages");
 
+  const life = await getOrCreateBotLifeState(input.env, input.userId, state, now);
+
   return {
     ready: true,
     messages,
     combinedMessage: formatPendingMessages(messages, now),
-    timeline: formatTimelineContext(state, now),
+    timeline: [
+      formatTimelineContext(state, now),
+      "",
+      "Current inner life:",
+      formatLifeContext(life, now)
+    ].join("\n"),
     state
   };
 }
@@ -256,6 +265,7 @@ export async function prepareIncomingTimeline(input: {
 }): Promise<TimelineContext> {
   const now = input.now ?? Date.now();
   const previous = await getConversationState(input.env, input.userId);
+  const life = await getOrCreateBotLifeState(input.env, input.userId, previous, now);
   const cadence = chooseCadence(input.message, previous?.reply_cadence ?? "normal");
   const profile = CADENCE[cadence.value];
   const delay = chooseHumanDelay({
@@ -270,8 +280,8 @@ export async function prepareIncomingTimeline(input: {
     }).mode,
     pendingCount: 1,
     recentTurnCount: 0,
-    attention: previous?.attention_score ?? 0.6,
-    energy: previous?.energy_score ?? 0.7,
+    attention: life.attention_score,
+    energy: life.energy_score,
     now
   });
   const proactiveAt = now + randomInt(profile.minProactiveMs, profile.maxProactiveMs);
@@ -288,9 +298,9 @@ export async function prepareIncomingTimeline(input: {
     nextProactiveAt: proactiveAt,
     cadenceReason: cadence.reason ?? previous?.cadence_reason ?? profile.reason,
     activeUntil: chooseActiveUntil("ambient", now),
-    availabilityMode: previous?.availability_mode ?? "normal",
-    attention: previous?.attention_score ?? 0.6,
-    energy: previous?.energy_score ?? 0.7,
+    availabilityMode: life.availability_mode,
+    attention: life.attention_score,
+    energy: life.energy_score,
     pendingReplyAfter: previous?.pending_reply_after ?? null,
     pendingReplyGeneration: previous?.pending_reply_generation ?? 0,
     timingReason: "legacy direct response",
@@ -301,7 +311,12 @@ export async function prepareIncomingTimeline(input: {
   return {
     cadence: cadence.value,
     replyDelayMs: delay,
-    formatted: formatTimelineContext(next, now, delay)
+    formatted: [
+      formatTimelineContext(next, now, delay),
+      "",
+      "Current inner life:",
+      formatLifeContext(life, now)
+    ].join("\n")
   };
 }
 
@@ -451,6 +466,7 @@ function chooseCadence(
 
 function choosePresence(
   previous: ConversationState | null,
+  life: BotLifeState | null,
   mode: TimingMode,
   now: number
 ): { availability: string; attention: number; energy: number } {
@@ -464,9 +480,11 @@ function choosePresence(
       : mode === "closing" ? 0.35
         : 0.55;
   const jitter = randomInt(-12, 12) / 100;
-  const attention = clamp((previous?.attention_score ?? baseAttention) * 0.35 + baseAttention * 0.65 + jitter);
-  const energy = clamp((previous?.energy_score ?? baseEnergy) * 0.45 + baseEnergy * 0.55 + jitter / 2);
+  const attention = clamp((life?.attention_score ?? previous?.attention_score ?? baseAttention) * 0.45 + baseAttention * 0.55 + jitter);
+  const energy = clamp((life?.energy_score ?? previous?.energy_score ?? baseEnergy) * 0.55 + baseEnergy * 0.45 + jitter / 2);
   const availability = mode === "asleep" ? "asleep"
+    : life?.availability_mode === "busy" && mode !== "crisis" && mode !== "distress" ? "busy"
+      : life?.availability_mode === "asleep" ? "asleep"
     : attention > 0.78 && energy > 0.55 ? "present"
       : attention < 0.4 || energy < 0.35 ? "distracted"
         : "normal";

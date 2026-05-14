@@ -23,6 +23,11 @@ import {
 import { buildCounselorPrompt, buildProactivePrompt } from "./prompt";
 import { callRunner, runCodexChat } from "./runner";
 import {
+  formatLifeContext,
+  getOrCreateBotLifeState,
+  orchestrateLife
+} from "./life";
+import {
   buildPendingReplyContext,
   formatTimelineContext,
   getDuePendingReplies,
@@ -43,6 +48,8 @@ import type {
   DiscordDmResponse,
   DiscordInteraction,
   Env,
+  OrchestrateRequest,
+  OrchestrateResponse,
   ProactiveRequest,
   ProactiveResponse
 } from "./types";
@@ -88,6 +95,10 @@ export default {
 
     if (request.method === "POST" && url.pathname === "/proactive") {
       return handleProactive(request, env);
+    }
+
+    if (request.method === "POST" && url.pathname === "/orchestrate") {
+      return handleOrchestrate(request, env);
     }
 
     return new Response("Not found", { status: 404 });
@@ -306,6 +317,21 @@ async function handleProactive(request: Request, env: Env): Promise<Response> {
   return jsonResponse({ messages } satisfies ProactiveResponse);
 }
 
+async function handleOrchestrate(request: Request, env: Env): Promise<Response> {
+  if (!isRunnerAuthorized(request, env)) {
+    return jsonResponse({ error: "unauthorized" }, { status: 401 });
+  }
+
+  const body: OrchestrateRequest = await request.json<OrchestrateRequest>().catch(() => ({}));
+  const states = await orchestrateLife({
+    env,
+    limit: Math.max(1, Math.min(body.limit ?? 3, 5)),
+    force: body.force ?? false
+  });
+
+  return jsonResponse({ states } satisfies OrchestrateResponse);
+}
+
 async function handleDiscordInteraction(
   request: Request,
   env: Env,
@@ -442,9 +468,15 @@ async function generateProactiveMessage(
   now: number
 ): Promise<string> {
   const memory = await buildMemoryContext(env, state.discord_user_id, "最近の気分、生活、会話の流れ、気軽な雑談");
+  const life = await getOrCreateBotLifeState(env, state.discord_user_id, state, now);
   const prompt = buildProactivePrompt({
     memory,
-    timeline: formatTimelineContext(state, now),
+    timeline: [
+      formatTimelineContext(state, now),
+      "",
+      "Current inner life:",
+      formatLifeContext(life, now)
+    ].join("\n"),
     language: env.COUNSELOR_LANGUAGE || "ja",
     nowIso: new Date(now).toISOString()
   });

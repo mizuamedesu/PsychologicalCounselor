@@ -23,14 +23,22 @@ import {
 import { buildCounselorPrompt, buildProactivePrompt } from "./prompt";
 import { callRunner, runCodexChat } from "./runner";
 import {
+  buildPendingReplyContext,
   formatTimelineContext,
+  getDuePendingReplies,
   getDueProactiveStates,
+  ingestIncomingMessage,
   markAssistantReplied,
+  markPendingReplySent,
   markProactiveSent,
   prepareIncomingTimeline,
   proactiveDelayMs
 } from "./timeline";
 import type {
+  DmIngestResponse,
+  DmRespondRequest,
+  DmRespondResponse,
+  DueRepliesResponse,
   DiscordDmRequest,
   DiscordDmResponse,
   DiscordInteraction,
@@ -60,6 +68,18 @@ export default {
 
     if (request.method === "POST" && url.pathname === "/discord") {
       return handleDiscordInteraction(request, env, ctx);
+    }
+
+    if (request.method === "POST" && url.pathname === "/dm/ingest") {
+      return handleDiscordDmIngest(request, env);
+    }
+
+    if (request.method === "POST" && url.pathname === "/dm/respond") {
+      return handleDiscordDmRespond(request, env);
+    }
+
+    if (request.method === "POST" && url.pathname === "/dm/due") {
+      return handleDiscordDmDue(request, env);
     }
 
     if (request.method === "POST" && url.pathname === "/dm") {
@@ -138,6 +158,122 @@ async function handleDiscordDm(request: Request, env: Env): Promise<Response> {
       error: error instanceof Error ? error.message : String(error)
     }, { status: 500 });
   }
+}
+
+async function handleDiscordDmIngest(request: Request, env: Env): Promise<Response> {
+  if (!isRunnerAuthorized(request, env)) {
+    return jsonResponse({ error: "unauthorized" }, { status: 401 });
+  }
+
+  const body = await request.json<DiscordDmRequest>();
+  const content = body.content?.trim();
+  if (!body.userId || !body.channelId || !body.messageId || !content) {
+    return jsonResponse({ error: "userId, channelId, messageId and content are required" }, { status: 400 });
+  }
+
+  if (!isOwnerIdentity({
+    userId: body.userId,
+    usernames: [body.username, body.globalName],
+    ownerId: env.OWNER_DISCORD_USER_ID,
+    ownerUsername: env.OWNER_DISCORD_USERNAME
+  })) {
+    return jsonResponse({ error: "forbidden" }, { status: 403 });
+  }
+
+  const command = parseDmCommand(content);
+  if (command.name !== null) {
+    return jsonResponse({
+      accepted: true,
+      delayMs: 0,
+      scheduledAt: Date.now(),
+      generation: 0,
+      timingMode: "command"
+    } satisfies DmIngestResponse);
+  }
+
+  const plan = await ingestIncomingMessage({
+    env,
+    userId: body.userId,
+    channelId: body.channelId,
+    messageId: body.messageId,
+    message: content
+  });
+
+  return jsonResponse({
+    accepted: true,
+    delayMs: plan.delayMs,
+    scheduledAt: plan.scheduledAt,
+    generation: plan.generation,
+    timingMode: plan.timingMode
+  } satisfies DmIngestResponse);
+}
+
+async function handleDiscordDmRespond(request: Request, env: Env): Promise<Response> {
+  if (!isRunnerAuthorized(request, env)) {
+    return jsonResponse({ error: "unauthorized" }, { status: 401 });
+  }
+
+  const body = await request.json<DmRespondRequest>();
+  if (!body.userId || !body.channelId) {
+    return jsonResponse({ error: "userId and channelId are required" }, { status: 400 });
+  }
+  if (!isOwnerIdentity({
+    userId: body.userId,
+    ownerId: env.OWNER_DISCORD_USER_ID,
+    ownerUsername: env.OWNER_DISCORD_USERNAME
+  })) {
+    return jsonResponse({ error: "forbidden" }, { status: 403 });
+  }
+
+  try {
+    const pending = await buildPendingReplyContext({
+      env,
+      userId: body.userId,
+      channelId: body.channelId,
+      generation: body.generation,
+      force: body.force
+    });
+    if (!pending.ready) {
+      return jsonResponse({
+        skipped: true,
+        reason: pending.skippedReason
+      } satisfies DmRespondResponse);
+    }
+
+    const reply = await generateCounselorReply({
+      env,
+      userId: body.userId,
+      channelId: body.channelId,
+      interactionId: pending.messages.map((message) => message.message_id).join(","),
+      message: pending.combinedMessage,
+      timeline: pending.timeline,
+      useTimeline: false
+    });
+
+    await markPendingReplySent({
+      env,
+      userId: body.userId,
+      channelId: body.channelId,
+      messageIds: pending.messages.map((message) => message.id)
+    });
+
+    return jsonResponse({ content: reply.text } satisfies DmRespondResponse);
+  } catch (error) {
+    console.error(error);
+    return jsonResponse({
+      error: error instanceof Error ? error.message : String(error)
+    }, { status: 500 });
+  }
+}
+
+async function handleDiscordDmDue(request: Request, env: Env): Promise<Response> {
+  if (!isRunnerAuthorized(request, env)) {
+    return jsonResponse({ error: "unauthorized" }, { status: 401 });
+  }
+
+  const body: ProactiveRequest = await request.json<ProactiveRequest>().catch(() => ({}));
+  const replies = await getDuePendingReplies(env, Math.max(1, Math.min(body.limit ?? 2, 5)));
+  return jsonResponse({ replies } satisfies DueRepliesResponse);
 }
 
 async function handleProactive(request: Request, env: Env): Promise<Response> {
@@ -256,6 +392,7 @@ async function generateCounselorReply(input: {
   channelId?: string;
   interactionId?: string;
   message: string;
+  timeline?: string;
   useTimeline?: boolean;
 }): Promise<{ text: string; delayMs?: number }> {
   const timeline = input.useTimeline
@@ -270,7 +407,7 @@ async function generateCounselorReply(input: {
   const prompt = buildCounselorPrompt({
     userMessage: input.message,
     memory,
-    timeline: timeline?.formatted,
+    timeline: input.timeline ?? timeline?.formatted,
     language: input.env.COUNSELOR_LANGUAGE || "ja",
     nowIso: new Date().toISOString()
   });

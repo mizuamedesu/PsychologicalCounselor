@@ -32,8 +32,12 @@ services:
     environment:
       DISCORD_BOT_TOKEN: ${DISCORD_BOT_TOKEN}
       WORKER_DM_URL: ${WORKER_DM_URL:-https://psychological-counselor.fasutotesuto.workers.dev/dm}
+      WORKER_DM_INGEST_URL: ${WORKER_DM_INGEST_URL:-https://psychological-counselor.fasutotesuto.workers.dev/dm/ingest}
+      WORKER_DM_RESPOND_URL: ${WORKER_DM_RESPOND_URL:-https://psychological-counselor.fasutotesuto.workers.dev/dm/respond}
+      WORKER_DM_DUE_URL: ${WORKER_DM_DUE_URL:-https://psychological-counselor.fasutotesuto.workers.dev/dm/due}
       WORKER_PROACTIVE_URL: ${WORKER_PROACTIVE_URL:-https://psychological-counselor.fasutotesuto.workers.dev/proactive}
       PROACTIVE_POLL_INTERVAL_MS: ${PROACTIVE_POLL_INTERVAL_MS:-300000}
+      DUE_REPLY_POLL_INTERVAL_MS: ${DUE_REPLY_POLL_INTERVAL_MS:-30000}
       RUNNER_SHARED_SECRET: ${RUNNER_SHARED_SECRET}
 
 volumes:

@@ -41,6 +41,38 @@ export interface DiscordDmResponse {
   delayMs?: number;
 }
 
+export interface DmIngestResponse {
+  accepted: boolean;
+  delayMs: number;
+  scheduledAt: number;
+  generation: number;
+  timingMode: string;
+}
+
+export interface DmRespondRequest {
+  userId: string;
+  channelId: string;
+  generation?: number;
+  force?: boolean;
+}
+
+export interface DmRespondResponse {
+  content?: string;
+  skipped?: boolean;
+  reason?: string;
+}
+
+export interface DueReply {
+  userId: string;
+  channelId: string;
+  generation: number;
+  scheduledAt: number;
+}
+
+export interface DueRepliesResponse {
+  replies: DueReply[];
+}
+
 export interface ProactiveRequest {
   limit?: number;
 }
@@ -70,6 +102,13 @@ export interface ConversationState {
   next_proactive_at: number | null;
   last_proactive_at: number | null;
   cadence_reason: string | null;
+  active_until: number | null;
+  availability_mode: string | null;
+  attention_score: number | null;
+  energy_score: number | null;
+  pending_reply_after: number | null;
+  pending_reply_generation: number | null;
+  timing_reason: string | null;
   updated_at: number;
 }
 

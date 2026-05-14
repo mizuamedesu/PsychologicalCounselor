@@ -35,7 +35,10 @@ All runner calls require `Authorization: Bearer $RUNNER_SHARED_SECRET`.
 
 Worker endpoints used by the Discord Gateway bot:
 
-- `POST /dm` receives a DM and returns `{ content, delayMs }`.
+- `POST /dm` handles private slash-like commands and legacy direct replies.
+- `POST /dm/ingest` records a normal DM as pending and returns a human-timing plan.
+- `POST /dm/respond` generates a reply from all pending DMs in that channel.
+- `POST /dm/due` returns pending replies whose planned time has arrived.
 - `POST /proactive` returns due casual check-ins for the bot to send.
 
 Both endpoints require `Authorization: Bearer $RUNNER_SHARED_SECRET`.
@@ -47,6 +50,11 @@ The Worker also stores conversation timing state in D1, returns a fuzzy `delayMs
 for human-ish replies, and exposes `/proactive` so the on-prem bot can send
 occasional low-pressure check-ins without putting the Discord bot token in
 Cloudflare.
+Normal DMs are not generated immediately: they are first stored as pending
+messages. If the user sends follow-ups before the reply time, the old timer is
+replaced and the eventual response is generated from the whole pending burst.
+The timing planner considers live conversation momentum, winding-down phrases,
+distress, follow-ups, recent-turn fatigue, and a simulated availability state.
 
 ## Local Mac Runner
 
@@ -71,6 +79,7 @@ The on-prem `discord-bot` service also supports:
 ```bash
 WORKER_PROACTIVE_URL=https://psychological-counselor.example.workers.dev/proactive
 PROACTIVE_POLL_INTERVAL_MS=300000
+DUE_REPLY_POLL_INTERVAL_MS=30000
 ```
 
 Users can steer timing naturally in chat. Phrases like "もっと返信返して" move the

@@ -38,6 +38,24 @@ const commands = withInstallContext([
     type: 1
   },
   {
+    name: "worldfreeze",
+    description: "世界進行と自動送信を停止・再開する",
+    type: 1,
+    options: [
+      {
+        name: "mode",
+        description: "省略時は停止",
+        type: 3,
+        required: false,
+        choices: [
+          { name: "on", value: "on" },
+          { name: "off", value: "off" },
+          { name: "status", value: "status" }
+        ]
+      }
+    ]
+  },
+  {
     name: "memory",
     description: "長期記憶を検索する",
     type: 1,

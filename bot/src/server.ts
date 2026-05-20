@@ -48,6 +48,7 @@ type DmIngestResponse = {
   immediate?: boolean;
   botUsername?: string;
   deleteTriggerMessage?: boolean;
+  frozen?: boolean;
   error?: string;
 };
 
@@ -197,6 +198,7 @@ async function handleDirectMessage(message: Message): Promise<void> {
       await sendChunked(message, withDeleteReport(body.content, deleteReport));
       return;
     }
+    if (body.frozen) return;
     if (body.generation === undefined) return;
     schedulePendingReply({
       userId: message.author.id,
@@ -545,7 +547,7 @@ function sanitizeDiscordUsername(value: string): string | null {
 }
 
 function isCommand(content: string): boolean {
-  return /^[/!](login|status|memory|forget|persona)\b/i.test(content.trim());
+  return /^[/!](login|status|memory|forget|persona|worldfreeze)\b/i.test(content.trim());
 }
 
 function requiredEnv(name: string): string {

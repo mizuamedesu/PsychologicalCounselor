@@ -55,6 +55,7 @@ export interface DmIngestResponse {
   immediate?: boolean;
   botUsername?: string;
   deleteTriggerMessage?: boolean;
+  frozen?: boolean;
 }
 
 export interface DmRespondRequest {
@@ -79,6 +80,7 @@ export interface DueReply {
 
 export interface DueRepliesResponse {
   replies: DueReply[];
+  worldFrozen?: boolean;
 }
 
 export interface ProactiveRequest {
@@ -94,6 +96,7 @@ export interface OrchestrateResponse {
   states: BotLifeState[];
   personaExpansions?: PersonaExpansion[];
   botUsername?: string;
+  worldFrozen?: boolean;
 }
 
 export interface ProactiveMessage {
@@ -105,6 +108,15 @@ export interface ProactiveMessage {
 
 export interface ProactiveResponse {
   messages: ProactiveMessage[];
+  worldFrozen?: boolean;
+}
+
+export interface WorldFreezeState {
+  discord_user_id: string;
+  frozen: number;
+  reason: string | null;
+  created_at: number;
+  updated_at: number;
 }
 
 export interface ConversationState {

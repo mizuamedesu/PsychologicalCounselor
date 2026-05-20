@@ -62,6 +62,11 @@ That state includes the current JST clock, day phase, likely persona-world scene
 responsiveness, warmth, and energy. It is injected as hidden stage direction, so
 the bot can answer "今なにしてるの" consistently without leaking internal labels
 into ordinary replies.
+`/worldfreeze` freezes the background side of that world: `/orchestrate` stops
+life ticks and persona expansion, `/proactive` sends nothing, `/dm/due` returns
+no pending automatic replies, and normal DM ingestion does not schedule a reply.
+Commands such as `/status`, `/persona`, `/memory`, `/worldfreeze off`, and slash
+`/chat` still work.
 
 After `/login`, the bot creates a persona profile if one does not exist yet and
 asks for a short seed, for example:
@@ -116,6 +121,14 @@ WORKER_ORCHESTRATE_URL=https://psychological-counselor.example.workers.dev/orche
 PROACTIVE_POLL_INTERVAL_MS=300000
 DUE_REPLY_POLL_INTERVAL_MS=30000
 LIFE_ORCHESTRATION_INTERVAL_MS=300000
+```
+
+World freeze controls:
+
+```text
+/worldfreeze
+/worldfreeze status
+/worldfreeze off
 ```
 
 Users can steer timing naturally in chat. Phrases like "もっと返信返して" move the

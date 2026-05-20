@@ -23,6 +23,13 @@ import {
 import { buildCounselorPrompt, buildProactivePrompt } from "./prompt";
 import { buildWorldContext } from "./world";
 import {
+  formatWorldFreezeStatus,
+  getWorldFreezeState,
+  isWorldFrozen,
+  parseWorldFreezeMode,
+  setWorldFrozen
+} from "./worldFreeze";
+import {
   buildPersonaContext,
   ensurePersonaProfile,
   expandDuePersonaWorlds,
@@ -150,13 +157,20 @@ async function handleDiscordDm(request: Request, env: Env): Promise<Response> {
     }
 
     if (command.name === "status") {
-      const [auth, stats, persona] = await Promise.all([
+      const [auth, stats, persona, freeze] = await Promise.all([
         callRunner<Record<string, unknown>>(env, "/auth/status"),
         memoryStats(env, body.userId),
-        formatPersonaStatus(env, body.userId)
+        formatPersonaStatus(env, body.userId),
+        getWorldFreezeState(env, body.userId)
       ]);
       return jsonResponse({
-        content: [`runner: ${env.RUNNER_BACKEND || "container"}`, formatAuthStatus(auth), stats, persona].join("\n\n")
+        content: [
+          `runner: ${env.RUNNER_BACKEND || "container"}`,
+          formatAuthStatus(auth),
+          stats,
+          persona,
+          formatWorldFreezeStatus(freeze)
+        ].join("\n\n")
       });
     }
 
@@ -175,6 +189,10 @@ async function handleDiscordDm(request: Request, env: Env): Promise<Response> {
 
     if (command.name === "persona") {
       return jsonResponse(await handlePersonaCommand(env, body.userId, command.argument));
+    }
+
+    if (command.name === "worldfreeze") {
+      return jsonResponse({ content: await handleWorldFreezeCommand(env, body.userId, command.argument) });
     }
 
     if (await personaNeedsSeed(env, body.userId)) {
@@ -242,6 +260,17 @@ async function handleDiscordDmIngest(request: Request, env: Env): Promise<Respon
       scheduledAt: Date.now(),
       generation: 0,
       timingMode: "command"
+    } satisfies DmIngestResponse);
+  }
+
+  if (await isWorldFrozen(env, body.userId)) {
+    return jsonResponse({
+      accepted: true,
+      delayMs: 0,
+      scheduledAt: Date.now(),
+      generation: 0,
+      timingMode: "worldfreeze",
+      frozen: true
     } satisfies DmIngestResponse);
   }
 
@@ -320,6 +349,13 @@ async function handleDiscordDmRespond(request: Request, env: Env): Promise<Respo
   }
 
   try {
+    if (await isWorldFrozen(env, body.userId) && !body.force) {
+      return jsonResponse({
+        skipped: true,
+        reason: "worldfreeze is on"
+      } satisfies DmRespondResponse);
+    }
+
     const pending = await buildPendingReplyContext({
       env,
       userId: body.userId,
@@ -366,6 +402,9 @@ async function handleDiscordDmDue(request: Request, env: Env): Promise<Response>
   }
 
   const body: ProactiveRequest = await request.json<ProactiveRequest>().catch(() => ({}));
+  if (env.OWNER_DISCORD_USER_ID && await isWorldFrozen(env, env.OWNER_DISCORD_USER_ID)) {
+    return jsonResponse({ replies: [], worldFrozen: true } satisfies DueRepliesResponse);
+  }
   const replies = await getDuePendingReplies(env, Math.max(1, Math.min(body.limit ?? 2, 5)));
   return jsonResponse({ replies } satisfies DueRepliesResponse);
 }
@@ -376,6 +415,9 @@ async function handleProactive(request: Request, env: Env): Promise<Response> {
   }
 
   const body: ProactiveRequest = await request.json<ProactiveRequest>().catch(() => ({}));
+  if (env.OWNER_DISCORD_USER_ID && await isWorldFrozen(env, env.OWNER_DISCORD_USER_ID)) {
+    return jsonResponse({ messages: [], worldFrozen: true } satisfies ProactiveResponse);
+  }
   const limit = Math.max(1, Math.min(body.limit ?? 1, 3));
   const now = Date.now();
   const states = await getDueProactiveStates(env, limit, now);
@@ -406,6 +448,14 @@ async function handleOrchestrate(request: Request, env: Env): Promise<Response> 
   }
 
   const body: OrchestrateRequest = await request.json<OrchestrateRequest>().catch(() => ({}));
+  if (env.OWNER_DISCORD_USER_ID && await isWorldFrozen(env, env.OWNER_DISCORD_USER_ID)) {
+    return jsonResponse({
+      states: [],
+      personaExpansions: [],
+      worldFrozen: true
+    } satisfies OrchestrateResponse);
+  }
+
   const states = await orchestrateLife({
     env,
     limit: Math.max(1, Math.min(body.limit ?? 3, 5)),
@@ -459,6 +509,11 @@ async function handleDiscordInteraction(
 
   if (commandName === "status") {
     ctx.waitUntil(handleStatus(interaction, env));
+    return deferredMessage(true);
+  }
+
+  if (commandName === "worldfreeze") {
+    ctx.waitUntil(handleWorldFreezeInteraction(interaction, env));
     return deferredMessage(true);
   }
 
@@ -647,16 +702,23 @@ async function handleStatus(interaction: DiscordInteraction, env: Env): Promise<
   if (!userId) return;
 
   try {
-    const [auth, stats, persona] = await Promise.all([
+    const [auth, stats, persona, freeze] = await Promise.all([
       callRunner<Record<string, unknown>>(env, "/auth/status"),
       memoryStats(env, userId),
-      formatPersonaStatus(env, userId)
+      formatPersonaStatus(env, userId),
+      getWorldFreezeState(env, userId)
     ]);
 
     await editOriginalInteraction(
       env.DISCORD_APPLICATION_ID,
       interaction.token,
-      [`runner: ${env.RUNNER_BACKEND || "container"}`, formatAuthStatus(auth), stats, persona].join("\n\n")
+      [
+        `runner: ${env.RUNNER_BACKEND || "container"}`,
+        formatAuthStatus(auth),
+        stats,
+        persona,
+        formatWorldFreezeStatus(freeze)
+      ].join("\n\n")
     );
   } catch (error) {
     console.error(error);
@@ -664,6 +726,27 @@ async function handleStatus(interaction: DiscordInteraction, env: Env): Promise<
       env.DISCORD_APPLICATION_ID,
       interaction.token,
       `status取得に失敗しました。\n\`${error instanceof Error ? error.message : String(error)}\``
+    );
+  }
+}
+
+async function handleWorldFreezeInteraction(interaction: DiscordInteraction, env: Env): Promise<void> {
+  const userId = interactionUserId(interaction);
+  if (!userId) return;
+
+  try {
+    const mode = getOption<string>(interaction.data?.options, "mode") ?? "";
+    await editOriginalInteraction(
+      env.DISCORD_APPLICATION_ID,
+      interaction.token,
+      await handleWorldFreezeCommand(env, userId, mode)
+    );
+  } catch (error) {
+    console.error(error);
+    await editOriginalInteraction(
+      env.DISCORD_APPLICATION_ID,
+      interaction.token,
+      `worldfreeze操作に失敗しました。\n\`${error instanceof Error ? error.message : String(error)}\``
     );
   }
 }
@@ -730,6 +813,38 @@ async function handlePersonaInteraction(interaction: DiscordInteraction, env: En
       `persona操作に失敗しました。\n\`${error instanceof Error ? error.message : String(error)}\``
     );
   }
+}
+
+async function handleWorldFreezeCommand(
+  env: Env,
+  userId: string,
+  argument: string
+): Promise<string> {
+  const mode = parseWorldFreezeMode(argument);
+  if (mode === "status") {
+    return formatWorldFreezeStatus(await getWorldFreezeState(env, userId));
+  }
+
+  const state = await setWorldFrozen({
+    env,
+    userId,
+    frozen: mode === "on",
+    reason: mode === "on" ? "manual /worldfreeze" : "manual /worldfreeze off"
+  });
+
+  return mode === "on"
+    ? [
+      "worldfreezeをONにしました。",
+      "世界エミュレート、ペルソナ自動拡張、proactive送信、pending自動返信を停止します。",
+      "",
+      formatWorldFreezeStatus(state)
+    ].join("\n")
+    : [
+      "worldfreezeをOFFにしました。",
+      "世界エミュレートと自動送信を再開します。",
+      "",
+      formatWorldFreezeStatus(state)
+    ].join("\n");
 }
 
 async function handlePersonaCommand(
@@ -939,7 +1054,7 @@ function isRunnerAuthorized(request: Request, env: Env): boolean {
 
 function parseDmCommand(content: string): { name: string | null; argument: string } {
   const trimmed = content.trim();
-  const match = trimmed.match(/^[/!](login|status|memory|forget|persona)\b\s*(.*)$/i);
+  const match = trimmed.match(/^[/!](login|status|memory|forget|persona|worldfreeze)\b\s*(.*)$/i);
   if (!match) return { name: null, argument: trimmed };
   return {
     name: match[1].toLowerCase(),
